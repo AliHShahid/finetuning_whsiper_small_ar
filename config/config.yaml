@@ -1,0 +1,73 @@
+# Whisper Fine-tuning Configuration
+model:
+  name: "openai/whisper-small"
+  max_length: 225
+  language: "ar"
+  task: "transcribe"
+
+data:
+  csv_path: "files_paths.csv"
+  audio_column: "FilePath"
+  class_column: "Class"
+  sampling_rate: 16000
+  max_duration: 30.0  # seconds
+  min_duration: 1.0   # seconds
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+training:
+  output_dir: "./models/whisper-finetuned"
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 2
+  learning_rate: 1e-5
+  weight_decay: 0.01
+  warmup_steps: 100
+  max_steps: 1000
+  eval_steps: 100
+  logging_steps: 50
+  save_steps: 200
+  save_total_limit: 3
+  fp16: true
+  gradient_checkpointing: false
+  # gradient_checkpointing: true
+  dataloader_num_workers: 0
+  # dataloader_num_workers: 4
+  remove_unused_columns: false
+  load_best_model_at_end: true
+  metric_for_best_model: "wer"
+  greater_is_better: false
+  report_to: null
+  # report_to: ["tensorboard", "wandb"]
+
+hyperparameter_tuning:
+  enabled: false
+  n_trials: 20
+  search_space:
+    learning_rate:
+      type: "loguniform"
+      low: 0.000001 #1e-6
+      high: 0.0001 #1e-4
+    per_device_train_batch_size:
+      type: "choice"
+      choices: [4, 8, 16]
+    warmup_steps:
+      type: "int"
+      low: 50
+      high: 200
+
+evaluation:
+  metrics: ["wer", "cer", "bleu"]
+  generate_predictions: true
+  save_predictions: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/training.log"
+
+huggingface:
+  push_to_hub: true
+  hub_model_id: "alihassanshahid/whisper-small-finetuned"
+  hub_private_repo: true

@@ -1,0 +1,9 @@
+Dataset/
+logs/
+models/
+results/
+wandb/
+whisper_env/
+docker-compose.yml
+Dockerfile  
+Readme.md
