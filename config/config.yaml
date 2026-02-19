@@ -71,6 +71,6 @@ logging:
   file: "./logs/training.log"
 
 huggingface:
-  push_to_hub: true
+  push_to_hub: false
   hub_model_id: "alihassanshahid/whisper-small-finetuned"
   hub_private_repo: true

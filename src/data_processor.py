@@ -75,8 +75,9 @@ class WhisperDataProcessor:
         return df
 
     def _resolve_audio_path(self, file_path: str) -> str:
-        """Resolve relative audio paths using Kaggle dataset root if available."""
-        path_obj = Path(file_path)
+        """Resolve relative audio paths using Kaggle dataset roots if available."""
+        normalized_path = str(file_path).replace("\\", "/")
+        path_obj = Path(normalized_path)
         if path_obj.exists() or path_obj.is_absolute() or self.dataset_root is None:
             return str(path_obj)
 
@@ -89,6 +90,19 @@ class WhisperDataProcessor:
             kaggle_candidate = kaggle_input_root / self.kaggle_dataset_slug / path_obj
             if kaggle_candidate.exists():
                 return str(kaggle_candidate)
+
+        if path_obj.parts:
+            first_part = path_obj.parts[0]
+            for root in [self.dataset_root, kaggle_input_root / self.kaggle_dataset_slug]:
+                if root.exists():
+                    match = next(
+                        (p for p in root.iterdir() if p.name.lower() == first_part.lower()),
+                        None,
+                    )
+                    if match is not None:
+                        case_candidate = match.joinpath(*path_obj.parts[1:])
+                        if case_candidate.exists():
+                            return str(case_candidate)
 
         return str(path_obj)
 
