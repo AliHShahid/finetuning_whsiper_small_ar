@@ -3,6 +3,7 @@
 import logging
 import os
 import json
+import dataclasses
 import yaml
 from pathlib import Path
 from typing import Dict, Any
@@ -23,9 +24,16 @@ def setup_logging(log_level: str = "INFO", log_file: str = None):
 def save_results(results: Dict[str, Any], output_path: str):
     """Save results to JSON file."""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    
+
+    def _json_default(value: Any):
+        if dataclasses.is_dataclass(value):
+            return dataclasses.asdict(value)
+        if isinstance(value, Path):
+            return str(value)
+        raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
+
     with open(output_path, 'w') as f:
-        json.dump(results, f, indent=2)
+        json.dump(results, f, indent=2, default=_json_default)
 
 def load_json(file_path: str) -> Dict[str, Any]:
     """Load JSON file."""
