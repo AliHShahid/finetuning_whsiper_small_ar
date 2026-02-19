@@ -18,7 +18,10 @@ class ModelConfig:
 
 @dataclass
 class DataConfig:
+    source: str = "local_csv"
     csv_path: str = "./data/audio_list.csv"
+    kaggle_dataset: str = ""
+    kaggle_file_path: str = ""
     audio_column: str = "FilePath"
     class_column: str = "Class"
     sampling_rate: int = 16000
@@ -54,10 +57,18 @@ class TrainingConfig:
 
 
 @dataclass
+class HuggingFaceConfig:
+    push_to_hub: bool = False
+    hub_model_id: str = ""
+    hub_private_repo: bool = True
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
+    huggingface: HuggingFaceConfig = field(default_factory=HuggingFaceConfig)
 
 def load_config(config_path: str = "config/config.yaml") -> Config:
     """Load configuration from YAML file."""
@@ -72,11 +83,13 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
     model_config = ModelConfig(**config_dict.get('model', {}))
     data_config = DataConfig(**config_dict.get('data', {}))
     training_config = TrainingConfig(**config_dict.get('training', {}))
+    huggingface_config = HuggingFaceConfig(**config_dict.get('huggingface', {}))
     
     return Config(
         model=model_config,
         data=data_config,
-        training=training_config
+        training=training_config,
+        huggingface=huggingface_config
     )
 
 def get_device():

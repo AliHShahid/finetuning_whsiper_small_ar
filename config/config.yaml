@@ -6,7 +6,10 @@ model:
   task: "transcribe"
 
 data:
+  source: "kaggle"
   csv_path: "files_paths.csv"
+  kaggle_dataset: "mohammedalrajeh/quran-recitations-for-audio-classification"
+  kaggle_file_path: "files_paths.csv"
   audio_column: "FilePath"
   class_column: "Class"
   sampling_rate: 16000

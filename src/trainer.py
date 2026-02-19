@@ -91,7 +91,9 @@ class WhisperTrainer:
             generation_max_length=int(self.config.model.max_length),
             report_to=list(self.config.training.report_to if self.config.training.report_to is not None else []),
             # report_to=list(self.config.training.report_to),
-            push_to_hub=True,  # Handle separately
+            push_to_hub=bool(self.config.huggingface.push_to_hub),
+            hub_model_id=str(self.config.huggingface.hub_model_id) if self.config.huggingface.hub_model_id else None,
+            hub_private_repo=bool(self.config.huggingface.hub_private_repo),
         ) 
 
     
@@ -140,7 +142,7 @@ class WhisperTrainer:
             train_dataset=dataset["train"],
             eval_dataset=dataset["validation"],
             data_collator=self.data_collator,
-            tokenizer=self.processor.feature_extractor,
+            tokenizer=self.processor.tokenizer,
             compute_metrics=self.compute_metrics,
             callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
         )

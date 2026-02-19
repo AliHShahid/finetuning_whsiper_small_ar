@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Main training script for Whisper fine-tuning."""
+import os
 
 import argparse
 import logging
@@ -49,7 +50,9 @@ def main():
         
         # Create dataset
         logger.info("Creating dataset...")
-        dataset = data_processor.create_dataset(config.data.csv_path)
+        dataset = data_processor.create_dataset(
+            config.data.csv_path if config.data.source == "local_csv" else None
+        )
         
         # Hyperparameter tuning
         if args.tune_hyperparameters:

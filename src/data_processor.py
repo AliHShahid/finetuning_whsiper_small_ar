@@ -11,6 +11,13 @@ from transformers import WhisperProcessor
 import logging
 from tqdm import tqdm
 
+try:
+    import kagglehub
+    from kagglehub import KaggleDatasetAdapter
+except ImportError:
+    kagglehub = None
+    KaggleDatasetAdapter = None
+
 logger = logging.getLogger(__name__)
 
 class WhisperDataProcessor:
@@ -22,18 +29,81 @@ class WhisperDataProcessor:
         self.sampling_rate = config.data.sampling_rate
         self.max_duration = config.data.max_duration
         self.min_duration = config.data.min_duration
+        self.data_source = getattr(config.data, "source", "local_csv")
+        self.dataset_root: Optional[Path] = None
         
-    def load_and_validate_csv(self, csv_path: str) -> pd.DataFrame:
-        """Load and validate the CSV file."""
+    def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
+        """Load dataset from a local CSV file."""
+        df = pd.read_csv(csv_path)
+        logger.info(f"Loaded local CSV with {len(df)} rows")
+        return df
+
+    def _load_kaggle_dataset(self) -> pd.DataFrame:
+        """Load dataset metadata from Kaggle using kagglehub API."""
+        if kagglehub is None or KaggleDatasetAdapter is None:
+            raise ImportError(
+                "kagglehub is not installed. Install it with: pip install 'kagglehub[pandas-datasets]'"
+            )
+
+        kaggle_dataset = getattr(self.config.data, "kaggle_dataset", "")
+        kaggle_file_path = getattr(self.config.data, "kaggle_file_path", "")
+
+        if not kaggle_dataset:
+            raise ValueError("data.kaggle_dataset must be set when data.source is 'kaggle'")
+        if not kaggle_file_path:
+            raise ValueError("data.kaggle_file_path must be set when data.source is 'kaggle'")
+
+        logger.info(
+            f"Loading dataset from Kaggle: {kaggle_dataset} (file: {kaggle_file_path})"
+        )
+        df = kagglehub.load_dataset(
+            KaggleDatasetAdapter.PANDAS,
+            kaggle_dataset,
+            kaggle_file_path,
+        )
+
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Kaggle dataset loader did not return a pandas DataFrame")
+
+        dataset_download_path = kagglehub.dataset_download(kaggle_dataset)
+        self.dataset_root = Path(dataset_download_path)
+        logger.info(f"Kaggle dataset downloaded to: {self.dataset_root}")
+        logger.info(f"Loaded Kaggle dataframe with {len(df)} rows")
+
+        return df
+
+    def _resolve_audio_path(self, file_path: str) -> str:
+        """Resolve relative audio paths using Kaggle dataset root if available."""
+        path_obj = Path(file_path)
+        if path_obj.exists() or path_obj.is_absolute() or self.dataset_root is None:
+            return str(path_obj)
+
+        candidate = self.dataset_root / path_obj
+        if candidate.exists():
+            return str(candidate)
+
+        return str(path_obj)
+
+    def load_and_validate_data(self, csv_path: Optional[str] = None) -> pd.DataFrame:
+        """Load dataset metadata from configured source and validate it."""
         try:
-            df = pd.read_csv(csv_path)
-            logger.info(f"Loaded CSV with {len(df)} rows")
+            if self.data_source == "kaggle":
+                df = self._load_kaggle_dataset()
+            else:
+                source_csv = csv_path or self.config.data.csv_path
+                df = self._load_local_csv(source_csv)
             
             # Validate required columns
             required_cols = [self.config.data.audio_column, self.config.data.class_column]
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 raise ValueError(f"Missing required columns: {missing_cols}")
+
+            # Resolve possible relative file paths (useful for Kaggle dataset files)
+            df = df.copy()
+            df[self.config.data.audio_column] = df[self.config.data.audio_column].astype(str).apply(
+                self._resolve_audio_path
+            )
             
             # Validate file paths
             valid_files = []
@@ -50,7 +120,7 @@ class WhisperDataProcessor:
             return df_valid
             
         except Exception as e:
-            logger.error(f"Error loading CSV: {e}")
+            logger.error(f"Error loading dataset metadata: {e}")
             raise
     
     def extract_audio_features(self, batch: Dict) -> Dict:
@@ -128,12 +198,12 @@ class WhisperDataProcessor:
             batch["labels"] = torch.full((self.config.model.max_length,), -100)
             return batch
     
-    def create_dataset(self, csv_path: str) -> DatasetDict:
+    def create_dataset(self, csv_path: Optional[str] = None) -> DatasetDict:
         """Create train/validation/test datasets."""
-        logger.info("Creating dataset from CSV...")
+        logger.info(f"Creating dataset from source: {self.data_source}")
         
         # Load and validate data
-        df = self.load_and_validate_csv(csv_path)
+        df = self.load_and_validate_data(csv_path)
         
         # Create dataset
         dataset = Dataset.from_pandas(df)
