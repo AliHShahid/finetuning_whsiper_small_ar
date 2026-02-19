@@ -31,6 +31,7 @@ class WhisperDataProcessor:
         self.min_duration = config.data.min_duration
         self.data_source = getattr(config.data, "source", "local_csv")
         self.dataset_root: Optional[Path] = None
+        self.kaggle_dataset_slug = ""
         
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
         """Load dataset from a local CSV file."""
@@ -67,6 +68,7 @@ class WhisperDataProcessor:
 
         dataset_download_path = kagglehub.dataset_download(kaggle_dataset)
         self.dataset_root = Path(dataset_download_path)
+        self.kaggle_dataset_slug = kaggle_dataset.split("/")[-1]
         logger.info(f"Kaggle dataset downloaded to: {self.dataset_root}")
         logger.info(f"Loaded Kaggle dataframe with {len(df)} rows")
 
@@ -81,6 +83,12 @@ class WhisperDataProcessor:
         candidate = self.dataset_root / path_obj
         if candidate.exists():
             return str(candidate)
+
+        kaggle_input_root = Path("/kaggle/input")
+        if self.kaggle_dataset_slug and kaggle_input_root.exists():
+            kaggle_candidate = kaggle_input_root / self.kaggle_dataset_slug / path_obj
+            if kaggle_candidate.exists():
+                return str(kaggle_candidate)
 
         return str(path_obj)
 

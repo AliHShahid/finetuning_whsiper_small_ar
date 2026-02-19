@@ -2,6 +2,7 @@
 
 import torch
 import logging
+import inspect
 from pathlib import Path
 from typing import Dict, Optional
 from transformers import (
@@ -136,16 +137,18 @@ class WhisperTrainer:
         training_args = self.setup_training_arguments()
         
         # Create trainer
-        trainer = Seq2SeqTrainer(
-            model=self.model,
-            args=training_args,
-            train_dataset=dataset["train"],
-            eval_dataset=dataset["validation"],
-            data_collator=self.data_collator,
-            tokenizer=self.processor.tokenizer,
-            compute_metrics=self.compute_metrics,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
-        )
+        trainer_kwargs = {
+            "model": self.model,
+            "args": training_args,
+            "train_dataset": dataset["train"],
+            "eval_dataset": dataset["validation"],
+            "data_collator": self.data_collator,
+            "compute_metrics": self.compute_metrics,
+            "callbacks": [EarlyStoppingCallback(early_stopping_patience=3)],
+        }
+        trainer_kwargs.update(self._get_trainer_processing_kwargs())
+
+        trainer = Seq2SeqTrainer(**trainer_kwargs)
         
         # Train
         trainer.train()
@@ -154,6 +157,19 @@ class WhisperTrainer:
         self.save_model(trainer)
         
         return trainer
+
+    def _get_trainer_processing_kwargs(self) -> Dict[str, object]:
+        """Return compatible tokenizer/processor kwargs for Seq2SeqTrainer."""
+        try:
+            sig = inspect.signature(Seq2SeqTrainer.__init__)
+        except (TypeError, ValueError):
+            return {}
+
+        if "tokenizer" in sig.parameters:
+            return {"tokenizer": self.processor.tokenizer}
+        if "processing_class" in sig.parameters:
+            return {"processing_class": self.processor}
+        return {}
     
     def save_model(self, trainer: Seq2SeqTrainer):
         """Save the trained model and processor."""
