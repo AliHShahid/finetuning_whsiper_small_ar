@@ -32,6 +32,7 @@ class WhisperDataProcessor:
         self.data_source = getattr(config.data, "source", "local_csv")
         self.dataset_root: Optional[Path] = None
         self.kaggle_dataset_slug = ""
+        self._kaggle_path_index: Optional[Dict[str, str]] = None
         
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
         """Load dataset from a local CSV file."""
@@ -76,7 +77,7 @@ class WhisperDataProcessor:
 
     def _resolve_audio_path(self, file_path: str) -> str:
         """Resolve relative audio paths using Kaggle dataset roots if available."""
-        normalized_path = str(file_path).replace("\\", "/")
+        normalized_path = str(file_path).replace("\\", "/").lstrip("./")
         path_obj = Path(normalized_path)
         if path_obj.exists() or path_obj.is_absolute() or self.dataset_root is None:
             return str(path_obj)
@@ -104,13 +105,47 @@ class WhisperDataProcessor:
                         if case_candidate.exists():
                             return str(case_candidate)
 
+        if self._kaggle_path_index:
+            lookup = normalized_path.lower().lstrip("/")
+            if lookup in self._kaggle_path_index:
+                return self._kaggle_path_index[lookup]
+            if lookup.startswith("dataset/"):
+                stripped = lookup[len("dataset/"):]
+                if stripped in self._kaggle_path_index:
+                    return self._kaggle_path_index[stripped]
+
         return str(path_obj)
+
+    def _build_kaggle_path_index(self) -> None:
+        """Index Kaggle dataset files for robust case-insensitive path resolution."""
+        if self._kaggle_path_index is not None:
+            return
+
+        index: Dict[str, str] = {}
+        roots = []
+        if self.dataset_root and self.dataset_root.exists():
+            roots.append(self.dataset_root)
+
+        kaggle_input_root = Path("/kaggle/input")
+        if self.kaggle_dataset_slug and kaggle_input_root.exists():
+            slug_root = kaggle_input_root / self.kaggle_dataset_slug
+            if slug_root.exists():
+                roots.append(slug_root)
+
+        for root in roots:
+            for path in root.rglob("*"):
+                if path.is_file():
+                    rel = path.relative_to(root).as_posix().lower()
+                    index.setdefault(rel, str(path))
+
+        self._kaggle_path_index = index
 
     def load_and_validate_data(self, csv_path: Optional[str] = None) -> pd.DataFrame:
         """Load dataset metadata from configured source and validate it."""
         try:
             if self.data_source == "kaggle":
                 df = self._load_kaggle_dataset()
+                self._build_kaggle_path_index()
             else:
                 source_csv = csv_path or self.config.data.csv_path
                 df = self._load_local_csv(source_csv)
