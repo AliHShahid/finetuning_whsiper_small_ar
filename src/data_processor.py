@@ -86,11 +86,19 @@ class WhisperDataProcessor:
         if candidate.exists():
             return str(candidate)
 
+        dataset_double = self.dataset_root / "Dataset" / path_obj
+        if dataset_double.exists():
+            return str(dataset_double)
+
         kaggle_input_root = Path("/kaggle/input")
         if self.kaggle_dataset_slug and kaggle_input_root.exists():
             kaggle_candidate = kaggle_input_root / self.kaggle_dataset_slug / path_obj
             if kaggle_candidate.exists():
                 return str(kaggle_candidate)
+
+            kaggle_double = kaggle_input_root / self.kaggle_dataset_slug / "Dataset" / path_obj
+            if kaggle_double.exists():
+                return str(kaggle_double)
 
         if path_obj.parts:
             first_part = path_obj.parts[0]
@@ -107,12 +115,19 @@ class WhisperDataProcessor:
 
         if self._kaggle_path_index:
             lookup = normalized_path.lower().lstrip("/")
-            if lookup in self._kaggle_path_index:
-                return self._kaggle_path_index[lookup]
+            candidates = [lookup]
             if lookup.startswith("dataset/"):
-                stripped = lookup[len("dataset/"):]
-                if stripped in self._kaggle_path_index:
-                    return self._kaggle_path_index[stripped]
+                candidates.append(lookup[len("dataset/"):])
+            if lookup.startswith("dataset/dataset/"):
+                candidates.append(lookup[len("dataset/dataset/"):])
+            if not lookup.startswith("dataset/"):
+                candidates.append(f"dataset/{lookup}")
+            if not lookup.startswith("dataset/dataset/"):
+                candidates.append(f"dataset/dataset/{lookup}")
+
+            for candidate in candidates:
+                if candidate in self._kaggle_path_index:
+                    return self._kaggle_path_index[candidate]
 
         return str(path_obj)
 
