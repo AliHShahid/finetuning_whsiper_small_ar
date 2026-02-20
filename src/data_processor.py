@@ -48,6 +48,29 @@ class WhisperDataProcessor:
         logger.info(f"Loaded local CSV with {len(df)} rows")
         return df
 
+    def _resolve_metadata_path(self, source_csv: str) -> str:
+        """Resolve metadata paths relative to the Kaggle dataset root."""
+        if not source_csv or self.dataset_root is None:
+            return source_csv
+
+        path_obj = Path(str(source_csv))
+        if path_obj.exists() or path_obj.is_absolute():
+            return str(path_obj)
+
+        candidate = self.dataset_root / path_obj
+        if candidate.exists():
+            return str(candidate)
+
+        quran_public = self.dataset_root / "Quran_Ayat_public" / path_obj
+        if quran_public.exists():
+            return str(quran_public)
+
+        dataset_double = self.dataset_root / "Dataset" / path_obj
+        if dataset_double.exists():
+            return str(dataset_double)
+
+        return str(path_obj)
+
     def _ensure_kaggle_dataset_root(self) -> None:
         """Download Kaggle dataset and set dataset_root for path resolution."""
         if kagglehub is None:
@@ -245,6 +268,7 @@ class WhisperDataProcessor:
 
                 source_csv = csv_path or self.config.data.metadata_path or self.config.data.csv_path
                 if source_csv:
+                    source_csv = self._resolve_metadata_path(source_csv)
                     df = self._load_local_csv(source_csv)
                 else:
                     df = self._load_kaggle_dataset()
@@ -291,8 +315,8 @@ class WhisperDataProcessor:
                     valid_files.append(idx)
                 else:
                     logger.warning(f"File not found: {file_path}")
-            
-            df_valid = df.iloc[valid_files].reset_index(drop=True)
+
+            df_valid = df.loc[valid_files].reset_index(drop=True)
             logger.info(f"Found {len(df_valid)} valid audio files out of {len(df)}")
             
             return df_valid
