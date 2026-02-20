@@ -41,6 +41,11 @@ class TrainingConfig:
     weight_decay: float = 0.01
     warmup_steps: int = 100
     max_steps: int = 1000
+    seed: int = 42
+    lr_scheduler_type: str = "linear"
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    adam_epsilon: float = 1e-8
     eval_steps: int = 100
     logging_steps: int = 50
     save_steps: int = 200

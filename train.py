@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main training script for Whisper fine-tuning."""
 import os
+import dataclasses
 
 import argparse
 import logging
@@ -75,7 +76,7 @@ def main():
         
         # Save results
         results = {
-            "config": config.__dict__,
+            "config": dataclasses.asdict(config),
             "evaluation_results": eval_results,
             "model_path": config.training.output_dir
         }
