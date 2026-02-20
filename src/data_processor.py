@@ -30,15 +30,42 @@ class WhisperDataProcessor:
         self.max_duration = config.data.max_duration
         self.min_duration = config.data.min_duration
         self.data_source = getattr(config.data, "source", "local_csv")
+        self.audio_column = getattr(config.data, "audio_column", "FilePath")
+        self.text_column = getattr(config.data, "text_column", "Transcript")
+        self.duration_column = getattr(config.data, "duration_column", "")
+        self.readerlist_path = getattr(config.data, "readerlist_path", "")
+        self.allowed_readers = getattr(config.data, "allowed_readers", None)
         self.dataset_root: Optional[Path] = None
         self.kaggle_dataset_slug = ""
         self._kaggle_path_index: Optional[Dict[str, str]] = None
         
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
         """Load dataset from a local CSV file."""
-        df = pd.read_csv(csv_path)
+        if str(csv_path).lower().endswith(".tsv"):
+            df = pd.read_csv(csv_path, sep="\t")
+        else:
+            df = pd.read_csv(csv_path)
         logger.info(f"Loaded local CSV with {len(df)} rows")
         return df
+
+    def _ensure_kaggle_dataset_root(self) -> None:
+        """Download Kaggle dataset and set dataset_root for path resolution."""
+        if kagglehub is None:
+            raise ImportError(
+                "kagglehub is not installed. Install it with: pip install 'kagglehub[pandas-datasets]'"
+            )
+
+        if self.dataset_root is not None:
+            return
+
+        kaggle_dataset = getattr(self.config.data, "kaggle_dataset", "")
+        if not kaggle_dataset:
+            raise ValueError("data.kaggle_dataset must be set when data.source is 'kaggle'")
+
+        dataset_download_path = kagglehub.dataset_download(kaggle_dataset)
+        self.dataset_root = Path(dataset_download_path)
+        self.kaggle_dataset_slug = kaggle_dataset.split("/")[-1]
+        logger.info(f"Kaggle dataset downloaded to: {self.dataset_root}")
 
     def _load_kaggle_dataset(self) -> pd.DataFrame:
         """Load dataset metadata from Kaggle using kagglehub API."""
@@ -53,7 +80,7 @@ class WhisperDataProcessor:
         if not kaggle_dataset:
             raise ValueError("data.kaggle_dataset must be set when data.source is 'kaggle'")
         if not kaggle_file_path:
-            raise ValueError("data.kaggle_file_path must be set when data.source is 'kaggle'")
+            raise ValueError("data.kaggle_file_path must be set when loading Kaggle metadata")
 
         logger.info(
             f"Loading dataset from Kaggle: {kaggle_dataset} (file: {kaggle_file_path})"
@@ -75,8 +102,25 @@ class WhisperDataProcessor:
 
         return df
 
+    def _replace_dataset_token(self, file_path: str) -> str:
+        """Replace ${DATASET_PATH} with a concrete dataset root if available."""
+        if "${DATASET_PATH}" not in str(file_path):
+            return str(file_path)
+
+        if self.dataset_root is not None:
+            return str(file_path).replace("${DATASET_PATH}", str(self.dataset_root))
+
+        kaggle_input_root = Path("/kaggle/input")
+        if self.kaggle_dataset_slug and kaggle_input_root.exists():
+            return str(file_path).replace(
+                "${DATASET_PATH}", str(kaggle_input_root / self.kaggle_dataset_slug)
+            )
+
+        return str(file_path).replace("${DATASET_PATH}", ".")
+
     def _resolve_audio_path(self, file_path: str) -> str:
         """Resolve relative audio paths using Kaggle dataset roots if available."""
+        file_path = self._replace_dataset_token(file_path)
         normalized_path = str(file_path).replace("\\", "/").lstrip("./")
         path_obj = Path(normalized_path)
         if path_obj.exists() or path_obj.is_absolute() or self.dataset_root is None:
@@ -155,32 +199,90 @@ class WhisperDataProcessor:
 
         self._kaggle_path_index = index
 
+    def _load_readerlist(self) -> List[str]:
+        """Load reader list from a TSV-like file (one reader per line)."""
+        if not self.readerlist_path:
+            return []
+
+        path = Path(self.readerlist_path)
+        if not path.exists():
+            logger.warning(f"Reader list not found: {self.readerlist_path}")
+            return []
+
+        readers: List[str] = []
+        with path.open("r", encoding="utf-8") as handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line or line.lower().startswith("reader"):
+                    continue
+                if "[" in line:
+                    line = line.split("[", 1)[0].strip()
+                token = line.split()[0].strip()
+                if token:
+                    readers.append(token)
+        return readers
+
+    def _extract_reader_from_path(self, file_path: str) -> str:
+        """Extract reader folder name from an audio path."""
+        parts = Path(str(file_path).replace("\\", "/")).parts
+        lowered = [part.lower() for part in parts]
+        if "audio_data" in lowered:
+            idx = lowered.index("audio_data")
+            if idx + 1 < len(parts):
+                return parts[idx + 1]
+        return ""
+
     def load_and_validate_data(self, csv_path: Optional[str] = None) -> pd.DataFrame:
         """Load dataset metadata from configured source and validate it."""
         try:
             if self.data_source == "kaggle":
-                df = self._load_kaggle_dataset()
+                self._ensure_kaggle_dataset_root()
                 self._build_kaggle_path_index()
+
+                source_csv = csv_path or self.config.data.metadata_path or self.config.data.csv_path
+                if source_csv:
+                    df = self._load_local_csv(source_csv)
+                else:
+                    df = self._load_kaggle_dataset()
             else:
-                source_csv = csv_path or self.config.data.csv_path
+                source_csv = csv_path or self.config.data.metadata_path or self.config.data.csv_path
                 df = self._load_local_csv(source_csv)
             
             # Validate required columns
-            required_cols = [self.config.data.audio_column, self.config.data.class_column]
+            required_cols = [self.audio_column, self.text_column]
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 raise ValueError(f"Missing required columns: {missing_cols}")
 
+            # Filter by reader list when provided
+            allowed_readers = set()
+            readers_from_file = self._load_readerlist()
+            if readers_from_file:
+                allowed_readers.update(reader.lower() for reader in readers_from_file)
+            if self.allowed_readers:
+                allowed_readers = set(reader.lower() for reader in self.allowed_readers)
+                if readers_from_file:
+                    allowed_readers = allowed_readers.intersection(
+                        reader.lower() for reader in readers_from_file
+                    )
+
+            if allowed_readers:
+                df = df.copy()
+                df["_reader"] = df[self.audio_column].astype(str).apply(
+                    self._extract_reader_from_path
+                )
+                before = len(df)
+                df = df[df["_reader"].str.lower().isin(allowed_readers)].drop(columns=["_reader"])
+                logger.info(f"Filtered by readers: {before} -> {len(df)} rows")
+
             # Resolve possible relative file paths (useful for Kaggle dataset files)
             df = df.copy()
-            df[self.config.data.audio_column] = df[self.config.data.audio_column].astype(str).apply(
-                self._resolve_audio_path
-            )
+            df[self.audio_column] = df[self.audio_column].astype(str).apply(self._resolve_audio_path)
             
             # Validate file paths
             valid_files = []
             for idx, row in tqdm(df.iterrows(), total=len(df), desc="Validating audio files"):
-                file_path = row[self.config.data.audio_column]
+                file_path = row[self.audio_column]
                 if Path(file_path).exists():
                     valid_files.append(idx)
                 else:
@@ -198,7 +300,7 @@ class WhisperDataProcessor:
     def extract_audio_features(self, batch: Dict) -> Dict:
         """Extract audio features from file paths."""
         try:
-            file_path = batch[self.config.data.audio_column]
+            file_path = batch[self.audio_column]
             
             # Load audio
             waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
@@ -221,7 +323,7 @@ class WhisperDataProcessor:
             return batch
             
         except Exception as e:
-            logger.error(f"Error processing audio file {batch.get(self.config.data.audio_column, 'unknown')}: {e}")
+            logger.error(f"Error processing audio file {batch.get(self.audio_column, 'unknown')}: {e}")
             # Return empty audio for failed files
             batch["audio"] = np.zeros(int(self.sampling_rate * self.min_duration))
             batch["sampling_rate"] = self.sampling_rate
@@ -240,13 +342,7 @@ class WhisperDataProcessor:
             
             batch["input_features"] = input_features
             
-            # For speaker identification, we can use the class as a label
-            # For transcription, you would need transcription text
-            speaker_class = batch[self.config.data.class_column]
-            
-            # Create a simple transcription prompt with speaker info
-            # This is a placeholder - you might want actual transcriptions
-            transcription = f"Speaker: {speaker_class}"
+            transcription = str(batch.get(self.text_column, ""))
             
             # Tokenize labels
             labels = self.processor.tokenizer(

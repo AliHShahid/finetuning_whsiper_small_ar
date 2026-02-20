@@ -7,11 +7,15 @@ model:
 
 data:
   source: "kaggle"
-  csv_path: "files_paths.csv"
-  kaggle_dataset: "mohammedalrajeh/quran-recitations-for-audio-classification"
-  kaggle_file_path: "files_paths.csv"
-  audio_column: "FilePath"
-  class_column: "Class"
+  csv_path: ""
+  metadata_path: "transcripts.tsv"
+  readerlist_path: "readerlist.tsv"
+  allowed_readers: ["Husary_64kbps", "Husary_Mujawwad_64kbps", "husary_qasr_64kbps"]
+  kaggle_dataset: "bigguyubuntu/quran-ayat-speech-to-text"
+  kaggle_file_path: ""
+  audio_column: "PATH"
+  text_column: "TRANSCRIPT"
+  duration_column: "DURATION"
   sampling_rate: 16000
   max_duration: 30.0  # seconds
   min_duration: 1.0   # seconds
@@ -27,7 +31,7 @@ training:
   learning_rate: 0.0001
   weight_decay: 0.01
   warmup_steps: 500
-  max_steps: 5000
+  max_steps: 1000
   seed: 42
   lr_scheduler_type: "linear"
   adam_beta1: 0.9

@@ -20,10 +20,14 @@ class ModelConfig:
 class DataConfig:
     source: str = "local_csv"
     csv_path: str = "./data/audio_list.csv"
+    metadata_path: str = ""
     kaggle_dataset: str = ""
     kaggle_file_path: str = ""
     audio_column: str = "FilePath"
-    class_column: str = "Class"
+    text_column: str = "Transcript"
+    duration_column: str = ""
+    readerlist_path: str = ""
+    allowed_readers: Optional[list] = None
     sampling_rate: int = 16000
     max_duration: float = 30.0
     min_duration: float = 1.0
