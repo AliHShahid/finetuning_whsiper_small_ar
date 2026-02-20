@@ -121,7 +121,11 @@ class WhisperDataProcessor:
     def _resolve_audio_path(self, file_path: str) -> str:
         """Resolve relative audio paths using Kaggle dataset roots if available."""
         file_path = self._replace_dataset_token(file_path)
-        normalized_path = str(file_path).replace("\\", "/").lstrip("./")
+        normalized_path = str(file_path).replace("\\", "/")
+        if normalized_path.startswith("./"):
+            normalized_path = normalized_path[2:]
+        if normalized_path.startswith("kaggle/input/"):
+            normalized_path = "/" + normalized_path
         path_obj = Path(normalized_path)
         if path_obj.exists() or path_obj.is_absolute() or self.dataset_root is None:
             return str(path_obj)
