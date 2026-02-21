@@ -383,27 +383,50 @@ class WhisperDataProcessor:
         
         # Load and validate data
         df = self.load_and_validate_data(csv_path)
-        
-        # Create dataset
-        dataset = Dataset.from_pandas(df)
-        
-        # Split dataset
-        train_test_split = dataset.train_test_split(
-            test_size=1 - self.config.data.train_split,
-            seed=42
-        )
-        
-        remaining_split = self.config.data.val_split / (self.config.data.val_split + self.config.data.test_split)
-        val_test_split = train_test_split['test'].train_test_split(
-            test_size=1 - remaining_split,
-            seed=42
-        )
-        
-        dataset_dict = DatasetDict({
-            'train': train_test_split['train'],
-            'validation': val_test_split['train'],
-            'test': val_test_split['test']
-        })
+
+        # Deterministic speaker-based split: hold out Abdurrahmaan_As-Sudais_64kbps for val/test.
+        holdout_reader = "Abdurrahmaan_As-Sudais_64kbps"
+        df = df.copy()
+        df["_reader"] = df[self.audio_column].astype(str).apply(self._extract_reader_from_path)
+        holdout_mask = df["_reader"].str.lower() == holdout_reader.lower()
+
+        holdout_df = df[holdout_mask].reset_index(drop=True)
+        train_df = df[~holdout_mask].reset_index(drop=True)
+
+        if holdout_df.empty:
+            logger.warning(
+                "No holdout samples found for Abdurrahmaan_As-Sudais_64kbps; falling back to random split."
+            )
+            dataset = Dataset.from_pandas(df.drop(columns=["_reader"]))
+            train_test_split = dataset.train_test_split(
+                test_size=1 - self.config.data.train_split,
+                seed=42
+            )
+
+            remaining_split = self.config.data.val_split / (
+                self.config.data.val_split + self.config.data.test_split
+            )
+            val_test_split = train_test_split["test"].train_test_split(
+                test_size=1 - remaining_split,
+                seed=42
+            )
+
+            dataset_dict = DatasetDict({
+                "train": train_test_split["train"],
+                "validation": val_test_split["train"],
+                "test": val_test_split["test"],
+            })
+        else:
+            split_index = len(holdout_df) // 2
+            val_df = holdout_df.iloc[:split_index].drop(columns=["_reader"]).reset_index(drop=True)
+            test_df = holdout_df.iloc[split_index:].drop(columns=["_reader"]).reset_index(drop=True)
+            train_df = train_df.drop(columns=["_reader"]).reset_index(drop=True)
+
+            dataset_dict = DatasetDict({
+                "train": Dataset.from_pandas(train_df),
+                "validation": Dataset.from_pandas(val_df),
+                "test": Dataset.from_pandas(test_df),
+            })
         
         logger.info(f"Dataset splits - Train: {len(dataset_dict['train'])}, "
                    f"Val: {len(dataset_dict['validation'])}, Test: {len(dataset_dict['test'])}")

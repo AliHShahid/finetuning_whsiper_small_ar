@@ -10,14 +10,14 @@ data:
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"
-  allowed_readers: ["Husary_64kbps", "Husary_Mujawwad_64kbps", "husary_qasr_64kbps"]
+  allowed_readers: ["Abdul_Basit_Murattal_64kbps", "AbdulSamad_64kbps", "Abdullaah_3awwaad_Al-Juhaynee_128kbps", "Abdullah_Basfar_32kbps", "Abdurrahmaan_As-Sudais_64kbps"]
   kaggle_dataset: "bigguyubuntu/quran-ayat-speech-to-text"
   kaggle_file_path: ""
   audio_column: "PATH"
   text_column: "TRANSCRIPT"
   duration_column: "DURATION"
   sampling_rate: 16000
-  max_duration: 30.0  # seconds
+  max_duration: 80.0  # seconds
   min_duration: 1.0   # seconds
   train_split: 0.8
   val_split: 0.1
