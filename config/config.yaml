@@ -4,6 +4,11 @@ model:
   max_length: 225
   language: "ar"
   task: "transcribe"
+  generation_config:
+    num_beams: 5
+    repetition_penalty: 1.2
+    no_repeat_ngram_size: 3
+    early_stopping: true
 
 data:
   source: "kaggle"

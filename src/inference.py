@@ -61,7 +61,10 @@ class WhisperInference:
                 "task": "transcribe",
                 "return_timestamps": return_timestamps,
                 "no_repeat_ngram_size": 3,
-                "length_penalty": 1.0,
+                "repetition_penalty": 1.2,
+                "num_beams": 5,
+                "early_stopping": True,
+                "condition_on_previous_text": False,
             }
             if max_new_tokens is not None:
                 generate_kwargs["max_new_tokens"] = int(max_new_tokens)

@@ -41,6 +41,12 @@ class WhisperTrainer:
         self.model.generation_config.task = "transcribe"
         self.model.generation_config.forced_decoder_ids = None
         
+        # Robust decoding parameters
+        self.model.generation_config.num_beams = 5
+        self.model.generation_config.repetition_penalty = 1.2
+        self.model.generation_config.no_repeat_ngram_size = 3
+        self.model.generation_config.early_stopping = True
+        
         # Initialize metrics
         self.wer_metric = evaluate.load("wer")
         self.cer_metric = evaluate.load("cer")
@@ -109,8 +115,8 @@ class WhisperTrainer:
             save_strategy="steps",
             predict_with_generate=True,
             generation_max_length=int(self.config.model.max_length),
+            num_beams=5,
             report_to=list(self.config.training.report_to if self.config.training.report_to is not None else []),
-            # report_to=list(self.config.training.report_to),
             push_to_hub=bool(self.config.huggingface.push_to_hub),
             hub_model_id=str(self.config.huggingface.hub_model_id) if self.config.huggingface.hub_model_id else None,
             hub_private_repo=bool(self.config.huggingface.hub_private_repo),
