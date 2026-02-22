@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import dataclasses
+import re
 import yaml
 from pathlib import Path
 from typing import Dict, Any
@@ -34,6 +35,19 @@ def save_results(results: Dict[str, Any], output_path: str):
 
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2, default=_json_default)
+
+def normalize_arabic_text(text: str) -> str:
+    """Normalize Arabic text for fair WER/CER comparison."""
+    if not text:
+        return ""
+
+    normalized = text
+    normalized = re.sub(r"[\u064B-\u065F\u0670\u06D6-\u06ED]", "", normalized)
+    normalized = normalized.replace("ـ", "")
+    normalized = normalized.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+    normalized = normalized.replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 def load_json(file_path: str) -> Dict[str, Any]:
     """Load JSON file."""

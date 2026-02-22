@@ -25,10 +25,12 @@ class WhisperInference:
         logger.info(f"Loaded model from {model_path} on {self.device}")
     
     def transcribe_audio(
-        self, 
-        audio_path: Union[str, Path], 
+        self,
+        audio_path: Union[str, Path],
         language: str = "en",
-        return_timestamps: bool = False
+        return_timestamps: bool = False,
+        max_new_tokens: Optional[int] = 128,
+        max_length: Optional[int] = None,
     ) -> str:
         """Transcribe a single audio file."""
         try:
@@ -36,22 +38,34 @@ class WhisperInference:
             audio, sr = librosa.load(audio_path, sr=16000)
             
             # Prepare input
-            input_features = self.processor(
-                audio, 
-                sampling_rate=sr, 
-                return_tensors="pt"
-            ).input_features.to(self.device)
-            
-            # Set language token
-            language_token_id = self.processor.tokenizer.convert_tokens_to_ids(f'<|{language}|>')
-            forced_decoder_ids = [[1, language_token_id]]
+            inputs = self.processor(
+                audio,
+                sampling_rate=sr,
+                return_tensors="pt",
+            )
+            input_features = inputs.input_features.to(self.device)
+            attention_mask = getattr(inputs, "attention_mask", None)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
+
+            generate_kwargs = {
+                "language": language,
+                "task": "transcribe",
+                "return_timestamps": return_timestamps,
+            }
+            if max_new_tokens is not None:
+                generate_kwargs["max_new_tokens"] = int(max_new_tokens)
+            elif max_length is not None:
+                generate_kwargs["max_length"] = int(max_length)
+
+            if attention_mask is not None:
+                generate_kwargs["attention_mask"] = attention_mask
             
             # Generate transcription
             with torch.no_grad():
                 predicted_ids = self.model.generate(
                     input_features,
-                    forced_decoder_ids=forced_decoder_ids,
-                    return_timestamps=return_timestamps
+                    **generate_kwargs,
                 )
             
             # Decode transcription

@@ -17,6 +17,7 @@ import evaluate
 import numpy as np
 from .data_processor import DataCollator
 from .config import Config
+from .utils import normalize_arabic_text
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,9 @@ class WhisperTrainer:
         # Replace -100 in labels with pad token id
         labels = np.where(labels != -100, labels, self.processor.tokenizer.pad_token_id)
         decoded_labels = self.processor.batch_decode(labels, skip_special_tokens=True)
+
+        decoded_preds = [normalize_arabic_text(text) for text in decoded_preds]
+        decoded_labels = [normalize_arabic_text(text) for text in decoded_labels]
         
         # Compute WER
         wer = self.wer_metric.compute(predictions=decoded_preds, references=decoded_labels)
