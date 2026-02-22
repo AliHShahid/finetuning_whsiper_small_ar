@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from datasets import Dataset, DatasetDict
+from datasets import Dataset, DatasetDict, load_dataset
 from transformers import WhisperProcessor
 import logging
 from tqdm import tqdm
@@ -30,6 +30,7 @@ class WhisperDataProcessor:
         self.max_duration = config.data.max_duration
         self.min_duration = config.data.min_duration
         self.data_source = getattr(config.data, "source", "local_csv")
+        self.streaming = bool(getattr(config.data, "streaming", False))
         self.audio_column = getattr(config.data, "audio_column", "FilePath")
         self.text_column = getattr(config.data, "text_column", "Transcript")
         self.duration_column = getattr(config.data, "duration_column", "")
@@ -47,6 +48,17 @@ class WhisperDataProcessor:
             df = pd.read_csv(csv_path)
         logger.info(f"Loaded local CSV with {len(df)} rows")
         return df
+
+    def _count_metadata_rows(self, source_csv: str) -> int:
+        """Count data rows (excluding header) without loading into memory."""
+        path = Path(source_csv)
+        if not path.exists():
+            raise FileNotFoundError(f"Metadata file not found: {source_csv}")
+
+        with path.open("r", encoding="utf-8") as handle:
+            total = sum(1 for _ in handle)
+
+        return max(0, total - 1)
 
     def _resolve_metadata_path(self, source_csv: str) -> str:
         """Resolve metadata paths relative to the Kaggle dataset root."""
@@ -249,6 +261,33 @@ class WhisperDataProcessor:
                     readers.append(token)
         return readers
 
+    def _get_allowed_readers(self) -> set:
+        """Build a normalized set of allowed readers."""
+        allowed_readers = set()
+        readers_from_file = self._load_readerlist()
+        if readers_from_file:
+            allowed_readers.update(reader.lower() for reader in readers_from_file)
+        if self.allowed_readers:
+            allowed_readers = set(reader.lower() for reader in self.allowed_readers)
+            if readers_from_file:
+                allowed_readers = allowed_readers.intersection(
+                    reader.lower() for reader in readers_from_file
+                )
+        return allowed_readers
+
+    def _resolve_streaming_row(self, row: Dict) -> Dict:
+        """Resolve audio paths for streaming datasets."""
+        row[self.audio_column] = self._resolve_audio_path(row[self.audio_column])
+        return row
+
+    def _streaming_filter_row(self, row: Dict, allowed_readers: Optional[set] = None) -> bool:
+        """Filter streaming rows by reader list and file existence."""
+        if allowed_readers:
+            reader = self._extract_reader_from_path(row.get(self.audio_column, ""))
+            if reader.lower() not in allowed_readers:
+                return False
+        return Path(row.get(self.audio_column, "")).exists()
+
     def _extract_reader_from_path(self, file_path: str) -> str:
         """Extract reader folder name from an audio path."""
         parts = Path(str(file_path).replace("\\", "/")).parts
@@ -283,17 +322,7 @@ class WhisperDataProcessor:
                 raise ValueError(f"Missing required columns: {missing_cols}")
 
             # Filter by reader list when provided
-            allowed_readers = set()
-            readers_from_file = self._load_readerlist()
-            if readers_from_file:
-                allowed_readers.update(reader.lower() for reader in readers_from_file)
-            if self.allowed_readers:
-                allowed_readers = set(reader.lower() for reader in self.allowed_readers)
-                if readers_from_file:
-                    allowed_readers = allowed_readers.intersection(
-                        reader.lower() for reader in readers_from_file
-                    )
-
+            allowed_readers = self._get_allowed_readers()
             if allowed_readers:
                 df = df.copy()
                 df["_reader"] = df[self.audio_column].astype(str).apply(
@@ -380,6 +409,93 @@ class WhisperDataProcessor:
     def create_dataset(self, csv_path: Optional[str] = None) -> DatasetDict:
         """Create train/validation/test datasets."""
         logger.info(f"Creating dataset from source: {self.data_source}")
+
+        if self.streaming:
+            logger.info("Streaming mode enabled; using iterable datasets.")
+            source_csv = csv_path or self.config.data.metadata_path or self.config.data.csv_path
+
+            if self.data_source == "kaggle":
+                self._ensure_kaggle_dataset_root()
+                self._build_kaggle_path_index()
+                if not source_csv:
+                    source_csv = self.config.data.kaggle_file_path
+                if not source_csv:
+                    raise ValueError(
+                        "Streaming requires data.metadata_path or data.kaggle_file_path for Kaggle sources"
+                    )
+                source_csv = self._resolve_metadata_path(source_csv)
+
+            if not source_csv:
+                raise ValueError("Streaming requires data.metadata_path or data.csv_path")
+
+            delimiter = "\t" if str(source_csv).lower().endswith(".tsv") else ","
+            total_rows = self._count_metadata_rows(source_csv)
+            if total_rows <= 0:
+                raise ValueError("No data rows found in metadata file for streaming")
+
+            raw_dataset = load_dataset(
+                "csv",
+                data_files=source_csv,
+                delimiter=delimiter,
+                split="train",
+                streaming=True,
+            )
+
+            raw_dataset = raw_dataset.map(self._resolve_streaming_row)
+            allowed_readers = self._get_allowed_readers()
+            raw_dataset = raw_dataset.filter(
+                self._streaming_filter_row,
+                fn_kwargs={"allowed_readers": allowed_readers},
+            )
+
+            buffer_size = min(10000, total_rows)
+            if buffer_size > 1:
+                raw_dataset = raw_dataset.shuffle(seed=42, buffer_size=buffer_size)
+
+            if total_rows < 3:
+                train_count = max(1, total_rows)
+                val_count = 0
+                test_count = max(0, total_rows - train_count)
+            else:
+                train_count = max(1, int(total_rows * self.config.data.train_split))
+                val_count = max(1, int(total_rows * self.config.data.val_split))
+                test_count = max(1, total_rows - train_count - val_count)
+                overflow = train_count + val_count + test_count - total_rows
+                if overflow > 0:
+                    train_count = max(1, train_count - overflow)
+
+            train_split = raw_dataset.take(train_count)
+            remainder = raw_dataset.skip(train_count)
+            val_split = remainder.take(val_count) if val_count else remainder.take(0)
+            test_split = remainder.skip(val_count)
+            if test_count:
+                test_split = test_split.take(test_count)
+
+            dataset_dict = DatasetDict(
+                {
+                    "train": train_split,
+                    "validation": val_split,
+                    "test": test_split,
+                }
+            )
+
+            logger.info(
+                f"Streaming dataset splits - Train: {train_count}, Val: {val_count}, Test: {test_count}"
+            )
+
+            logger.info("Preparing model features...")
+            remove_columns = [
+                col
+                for col in dataset_dict["train"].column_names
+                if col not in ["input_features", "labels"]
+            ]
+            dataset_dict = dataset_dict.map(
+                self.prepare_features,
+                desc="Preparing features",
+                remove_columns=remove_columns,
+            )
+
+            return dataset_dict
         
         # Load and validate data
         df = self.load_and_validate_data(csv_path)

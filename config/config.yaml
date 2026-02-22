@@ -7,6 +7,7 @@ model:
 
 data:
   source: "kaggle"
+  streaming: true
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"

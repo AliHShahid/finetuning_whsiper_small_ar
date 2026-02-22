@@ -19,6 +19,7 @@ class ModelConfig:
 @dataclass
 class DataConfig:
     source: str = "local_csv"
+    streaming: bool = False
     csv_path: str = "./data/audio_list.csv"
     metadata_path: str = ""
     kaggle_dataset: str = ""
