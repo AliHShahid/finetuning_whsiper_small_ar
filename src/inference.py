@@ -18,16 +18,24 @@ class WhisperInference:
         
         # Load model and processor
         self.model = WhisperForConditionalGeneration.from_pretrained(model_path)
-        self.processor = WhisperProcessor.from_pretrained(model_path)
+        self.processor = WhisperProcessor.from_pretrained(
+            model_path,
+            language="ar",
+            task="transcribe",
+        )
         self.model.to(self.device)
         self.model.eval()
+
+        self.model.generation_config.language = "ar"
+        self.model.generation_config.task = "transcribe"
+        self.model.generation_config.forced_decoder_ids = None
         
         logger.info(f"Loaded model from {model_path} on {self.device}")
     
     def transcribe_audio(
         self,
         audio_path: Union[str, Path],
-        language: str = "en",
+        language: str = "ar",
         return_timestamps: bool = False,
         max_new_tokens: Optional[int] = 128,
         max_length: Optional[int] = None,
@@ -49,9 +57,11 @@ class WhisperInference:
                 attention_mask = attention_mask.to(self.device)
 
             generate_kwargs = {
-                "language": language,
+                "language": "ar",
                 "task": "transcribe",
                 "return_timestamps": return_timestamps,
+                "no_repeat_ngram_size": 3,
+                "length_penalty": 1.0,
             }
             if max_new_tokens is not None:
                 generate_kwargs["max_new_tokens"] = int(max_new_tokens)

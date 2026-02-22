@@ -29,9 +29,17 @@ class WhisperTrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         # Load processor and model
-        self.processor = WhisperProcessor.from_pretrained(config.model.name)
+        self.processor = WhisperProcessor.from_pretrained(
+            config.model.name,
+            language="ar",
+            task="transcribe",
+        )
         self.model = WhisperForConditionalGeneration.from_pretrained(config.model.name)
         self.model.to(self.device)
+
+        self.model.generation_config.language = "ar"
+        self.model.generation_config.task = "transcribe"
+        self.model.generation_config.forced_decoder_ids = None
         
         # Initialize metrics
         self.wer_metric = evaluate.load("wer")
