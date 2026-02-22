@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, IterableDatasetDict, load_dataset
 from transformers import WhisperProcessor
 import logging
 from tqdm import tqdm
@@ -471,7 +471,7 @@ class WhisperDataProcessor:
             if test_count:
                 test_split = test_split.take(test_count)
 
-            dataset_dict = DatasetDict(
+            dataset_dict = IterableDatasetDict(
                 {
                     "train": train_split,
                     "validation": val_split,
@@ -495,10 +495,24 @@ class WhisperDataProcessor:
                 for col in base_columns
                 if col not in ["input_features", "labels"]
             ]
-            dataset_dict = dataset_dict.map(
-                self.prepare_features,
-                desc="Preparing features",
-                remove_columns=remove_columns,
+            dataset_dict = IterableDatasetDict(
+                {
+                    "train": dataset_dict["train"].map(
+                        self.prepare_features,
+                        desc="Preparing features",
+                        remove_columns=remove_columns,
+                    ),
+                    "validation": dataset_dict["validation"].map(
+                        self.prepare_features,
+                        desc="Preparing features",
+                        remove_columns=remove_columns,
+                    ),
+                    "test": dataset_dict["test"].map(
+                        self.prepare_features,
+                        desc="Preparing features",
+                        remove_columns=remove_columns,
+                    ),
+                }
             )
 
             return dataset_dict
