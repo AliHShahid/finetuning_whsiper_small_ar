@@ -12,7 +12,7 @@ from transformers import (
     Seq2SeqTrainingArguments,
     EarlyStoppingCallback
 )
-from datasets import DatasetDict
+from datasets import Dataset, DatasetDict, IterableDataset
 import evaluate
 import numpy as np
 from .data_processor import DataCollator
@@ -66,6 +66,8 @@ class WhisperTrainer:
              
     def setup_training_arguments(self) -> Seq2SeqTrainingArguments:
         """Setup training arguments."""
+        eval_strategy = "no" if self.config.data.streaming else "steps"
+        load_best_model_at_end = bool(self.config.training.load_best_model_at_end) and eval_strategy != "no"
         return Seq2SeqTrainingArguments(
             output_dir=str(self.config.training.output_dir),
             per_device_train_batch_size=int(self.config.training.per_device_train_batch_size),
@@ -88,10 +90,10 @@ class WhisperTrainer:
             gradient_checkpointing=bool(self.config.training.gradient_checkpointing),
             dataloader_num_workers=int(self.config.training.dataloader_num_workers),
             remove_unused_columns=bool(self.config.training.remove_unused_columns),
-            load_best_model_at_end=bool(self.config.training.load_best_model_at_end),
+            load_best_model_at_end=load_best_model_at_end,
             metric_for_best_model=str(self.config.training.metric_for_best_model),
             greater_is_better=bool(self.config.training.greater_is_better),
-            eval_strategy="steps",
+            eval_strategy=eval_strategy,
             save_strategy="steps",
             predict_with_generate=True,
             generation_max_length=int(self.config.model.max_length),
@@ -146,10 +148,10 @@ class WhisperTrainer:
             "model": self.model,
             "args": training_args,
             "train_dataset": dataset["train"],
-            "eval_dataset": dataset["validation"],
+            "eval_dataset": None if self.config.data.streaming else dataset["validation"],
             "data_collator": self.data_collator,
             "compute_metrics": self.compute_metrics,
-            "callbacks": [EarlyStoppingCallback(early_stopping_patience=3)],
+            "callbacks": [] if self.config.data.streaming else [EarlyStoppingCallback(early_stopping_patience=3)],
         }
         trainer_kwargs.update(self._get_trainer_processing_kwargs())
 
@@ -192,8 +194,17 @@ class WhisperTrainer:
     def evaluate(self, dataset: DatasetDict, trainer: Seq2SeqTrainer) -> Dict:
         """Evaluate the model on test set."""
         logger.info("Evaluating model on test set...")
-        
-        eval_results = trainer.evaluate(eval_dataset=dataset["test"])
+        eval_dataset = dataset["test"]
+        if isinstance(eval_dataset, IterableDataset):
+            eval_dataset = self._materialize_iterable_eval(eval_dataset)
+
+        eval_results = trainer.evaluate(eval_dataset=eval_dataset)
         
         logger.info(f"Test Results: {eval_results}")
         return eval_results
+
+    def _materialize_iterable_eval(self, eval_dataset: IterableDataset) -> Dataset:
+        """Materialize a small eval dataset from streaming data."""
+        max_samples = int(getattr(self.config.data, "eval_max_samples", 1000))
+        max_samples = max(1, max_samples)
+        return Dataset.from_list(list(eval_dataset.take(max_samples)))

@@ -20,6 +20,7 @@ class ModelConfig:
 class DataConfig:
     source: str = "local_csv"
     streaming: bool = False
+    eval_max_samples: int = 1000
     csv_path: str = "./data/audio_list.csv"
     metadata_path: str = ""
     kaggle_dataset: str = ""
