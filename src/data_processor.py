@@ -499,17 +499,14 @@ class WhisperDataProcessor:
                 {
                     "train": dataset_dict["train"].map(
                         self.prepare_features,
-                        desc="Preparing features",
                         remove_columns=remove_columns,
                     ),
                     "validation": dataset_dict["validation"].map(
                         self.prepare_features,
-                        desc="Preparing features",
                         remove_columns=remove_columns,
                     ),
                     "test": dataset_dict["test"].map(
                         self.prepare_features,
-                        desc="Preparing features",
                         remove_columns=remove_columns,
                     ),
                 }
