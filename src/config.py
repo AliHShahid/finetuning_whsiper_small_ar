@@ -15,6 +15,7 @@ class ModelConfig:
     max_length: int = 225
     language: str = "en"
     task: str = "transcribe"
+    generation_config: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class DataConfig:
