@@ -484,9 +484,15 @@ class WhisperDataProcessor:
             )
 
             logger.info("Preparing model features...")
+            base_columns = []
+            if dataset_dict["train"].column_names is not None:
+                base_columns = list(dataset_dict["train"].column_names)
+            elif raw_dataset.features is not None:
+                base_columns = list(raw_dataset.features.keys())
+
             remove_columns = [
                 col
-                for col in dataset_dict["train"].column_names
+                for col in base_columns
                 if col not in ["input_features", "labels"]
             ]
             dataset_dict = dataset_dict.map(
