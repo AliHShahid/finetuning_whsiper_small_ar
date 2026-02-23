@@ -115,7 +115,6 @@ class WhisperTrainer:
             save_strategy="steps",
             predict_with_generate=True,
             generation_max_length=int(self.config.model.max_length),
-            num_beams=5,
             report_to=list(self.config.training.report_to if self.config.training.report_to is not None else []),
             push_to_hub=bool(self.config.huggingface.push_to_hub),
             hub_model_id=str(self.config.huggingface.hub_model_id) if self.config.huggingface.hub_model_id else None,
