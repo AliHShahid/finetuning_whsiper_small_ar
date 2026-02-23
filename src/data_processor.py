@@ -459,17 +459,25 @@ class WhisperDataProcessor:
             else:
                 train_count = max(1, int(total_rows * self.config.data.train_split))
                 val_count = max(1, int(total_rows * self.config.data.val_split))
-                test_count = max(1, total_rows - train_count - val_count)
-                overflow = train_count + val_count + test_count - total_rows
-                if overflow > 0:
-                    train_count = max(1, train_count - overflow)
+                # Ensure we don't exceed total_rows
+                val_count = min(val_count, total_rows - train_count)
+                test_count = max(0, total_rows - train_count - val_count)
 
+            # Split raw_dataset before filtering to ensure splits are relative to file structure
             train_split = raw_dataset.take(train_count)
             remainder = raw_dataset.skip(train_count)
             val_split = remainder.take(val_count) if val_count else remainder.take(0)
             test_split = remainder.skip(val_count)
             if test_count:
                 test_split = test_split.take(test_count)
+
+            # Now apply final filtering to each split
+            allowed_readers = self._get_allowed_readers()
+            filter_kwargs = {"allowed_readers": allowed_readers}
+            
+            train_split = train_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+            val_split = val_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+            test_split = test_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
 
             dataset_dict = IterableDatasetDict(
                 {
@@ -480,7 +488,7 @@ class WhisperDataProcessor:
             )
 
             logger.info(
-                f"Streaming dataset splits - Train: {train_count}, Val: {val_count}, Test: {test_count}"
+                f"Streaming raw split points: train={train_count}, val={val_count}, test={test_count}"
             )
 
             logger.info("Preparing model features...")

@@ -77,6 +77,12 @@ class WhisperTrainer:
         # Compute CER
         cer = self.cer_metric.compute(predictions=decoded_preds, references=decoded_labels)
         
+        # Log a few samples for visibility
+        for i in range(min(3, len(decoded_preds))):
+            logger.info(f"Sample {i}:")
+            logger.info(f"  Ref: {decoded_labels[i]}")
+            logger.info(f"  Pred: {decoded_preds[i]}")
+
         return {
             "wer": wer,
             "cer": cer
@@ -161,11 +167,16 @@ class WhisperTrainer:
         training_args = self.setup_training_arguments()
         
         # Create trainer
+        eval_dataset = dataset["validation"]
+        if self.config.data.streaming and eval_dataset is not None:
+            logger.info("Materializing validation set for training evaluation...")
+            eval_dataset = self._materialize_iterable_eval(eval_dataset)
+
         trainer_kwargs = {
             "model": self.model,
             "args": training_args,
             "train_dataset": dataset["train"],
-            "eval_dataset": None if self.config.data.streaming else dataset["validation"],
+            "eval_dataset": eval_dataset,
             "data_collator": self.data_collator,
             "compute_metrics": self.compute_metrics,
             "callbacks": [] if self.config.data.streaming else [EarlyStoppingCallback(early_stopping_patience=3)],
@@ -217,7 +228,18 @@ class WhisperTrainer:
 
         eval_results = trainer.evaluate(eval_dataset=eval_dataset)
         
+        # Ensure WER and CER are present
+        if "eval_wer" in eval_results:
+            eval_results["wer"] = eval_results["eval_wer"]
+        if "eval_cer" in eval_results:
+            eval_results["cer"] = eval_results["eval_cer"]
+
         logger.info(f"Test Results: {eval_results}")
+        if "wer" in eval_results:
+            logger.info(f"Final WER: {eval_results['wer']:.2%}")
+        if "cer" in eval_results:
+            logger.info(f"Final CER: {eval_results['cer']:.2%}")
+
         return eval_results
 
     def _materialize_iterable_eval(self, eval_dataset: IterableDataset) -> Dataset:
