@@ -37,6 +37,16 @@ class WhisperTrainer:
         self.model = WhisperForConditionalGeneration.from_pretrained(config.model.name)
         self.model.to(self.device)
 
+        # Freeze the encoder BEFORE Seq2SeqTrainer initialization
+        # This ensures the optimizer (created by Trainer) does not track these parameters
+        self.model.model.encoder.requires_grad_(False)
+        logger.info("Encoder has been frozen (requires_grad=False)")
+
+        # Enable SpecAugment for better robustness
+        if hasattr(self.processor.feature_extractor, "apply_spec_augment"):
+            self.processor.feature_extractor.apply_spec_augment = True
+            logger.info("SpecAugment enabled in feature extractor")
+
         self.model.generation_config.language = "ar"
         self.model.generation_config.task = "transcribe"
         self.model.generation_config.forced_decoder_ids = None
@@ -45,6 +55,8 @@ class WhisperTrainer:
         self.model.generation_config.num_beams = 5
         self.model.generation_config.repetition_penalty = 1.2
         self.model.generation_config.no_repeat_ngram_size = 3
+        self.model.generation_config.length_penalty = 0.8
+        self.model.generation_config.max_length = 128
         self.model.generation_config.early_stopping = True
         
         # Initialize metrics
@@ -83,15 +95,19 @@ class WhisperTrainer:
             logger.info(f"  Ref: {decoded_labels[i]}")
             logger.info(f"  Pred: {decoded_preds[i]}")
 
-        return {
+        metrics = {
             "wer": wer,
             "cer": cer
         }
+        logger.info(f"Computed metrics: {metrics}")
+        return metrics
              
     def setup_training_arguments(self) -> Seq2SeqTrainingArguments:
         """Setup training arguments."""
-        eval_strategy = "no" if self.config.data.streaming else "steps"
-        load_best_model_at_end = bool(self.config.training.load_best_model_at_end) and eval_strategy != "no"
+        # Force evaluation strategy to 'steps' if we have verification data
+        eval_strategy = "steps"
+        load_best_model_at_end = bool(self.config.training.load_best_model_at_end)
+        
         return Seq2SeqTrainingArguments(
             output_dir=str(self.config.training.output_dir),
             per_device_train_batch_size=int(self.config.training.per_device_train_batch_size),

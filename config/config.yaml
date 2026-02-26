@@ -1,7 +1,7 @@
 # Whisper Fine-tuning Configuration
 model:
   name: "openai/whisper-small"
-  max_length: 225
+  max_length: 128
   language: "ar"
   task: "transcribe"
   generation_config:
@@ -16,7 +16,17 @@ data:
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"
-  allowed_readers: ["Abdul_Basit_Murattal_64kbps", "Abdullaah_3awwaad_Al-Juhaynee_128kbps", "Abdullah_Basfar_32kbps", "Abdurrahmaan_As-Sudais_64kbps"]
+  allowed_readers: [
+    "Abdullaah_3awwaad_Al-Juhaynee_128kbps", 
+    "Abdurrahmaan_As-Sudais_64kbps",
+    "tunaiji_64kbps",
+    "husary_qasr_64kbps",
+    "Yasser_Ad-Dussary_128kbps",
+    "Saood_ash-Shuraym_64kbps",
+    "Muhsin_Al_Qasim_192kbps",
+    "Hudhaify_64kbps",
+    "Hani_Rifai_192kbps"
+  ]
   kaggle_dataset: "bigguyubuntu/quran-ayat-speech-to-text"
   kaggle_file_path: ""
   audio_column: "PATH"
@@ -35,7 +45,7 @@ training:
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 4
-  learning_rate: 0.0001
+  learning_rate: 0.00001
   weight_decay: 0.01
   warmup_steps: 500
   max_steps: 1000

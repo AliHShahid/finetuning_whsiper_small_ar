@@ -391,6 +391,7 @@ class WhisperDataProcessor:
                 truncation=True,
             ).input_ids[0]
 
+            # Mask padding tokens with -100 so they are ignored by the loss function
             labels[labels == self.processor.tokenizer.pad_token_id] = -100
 
             batch["input_features"] = input_features
