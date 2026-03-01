@@ -21,7 +21,7 @@ class ModelConfig:
 class DataConfig:
     source: str = "local_csv"
     streaming: bool = False
-    eval_max_samples: int = 1000
+    eval_max_samples: Optional[int] = 1000
     csv_path: str = "./data/audio_list.csv"
     metadata_path: str = ""
     kaggle_dataset: str = ""
@@ -45,9 +45,11 @@ class TrainingConfig:
     per_device_eval_batch_size: int = 8
     gradient_accumulation_steps: int = 2
     learning_rate: float = 1e-5
+    max_grad_norm: float = 1.0
     weight_decay: float = 0.01
     warmup_steps: int = 100
-    max_steps: int = 1000
+    num_train_epochs: Optional[float] = 3.0
+    max_steps: Optional[int] = None
     seed: int = 42
     lr_scheduler_type: str = "linear"
     adam_beta1: float = 0.9

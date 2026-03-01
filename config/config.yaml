@@ -1,7 +1,7 @@
 # Whisper Fine-tuning Configuration
 model:
   name: "openai/whisper-small"
-  max_length: 128
+  max_length: 256
   language: "ar"
   task: "transcribe"
   generation_config:
@@ -12,7 +12,7 @@ model:
 
 data:
   source: "kaggle"
-  streaming: true
+  streaming: false
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"
@@ -38,17 +38,18 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  eval_max_samples: 100  # Number of samples to materialize for evaluation
+  eval_max_samples: null  # Number of samples to materialize for evaluation
 
 training:
   output_dir: "./models/whisper-finetuned"
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 4
-  learning_rate: 0.00001
+  learning_rate: 1.0e-5
   weight_decay: 0.01
-  warmup_steps: 500
-  max_steps: 1000
+  warmup_steps: 1000
+  max_grad_norm: 1.0
+  num_train_epochs: 3
   seed: 42
   lr_scheduler_type: "linear"
   adam_beta1: 0.9

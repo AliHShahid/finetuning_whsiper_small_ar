@@ -34,6 +34,8 @@ class WhisperTrainer:
             language="ar",
             task="transcribe",
         )
+        self.processor.tokenizer.set_prefix_tokens(language="arabic", task="transcribe")
+        logger.info("Forced Arabic language and transcription task tokens in tokenizer")
         self.model = WhisperForConditionalGeneration.from_pretrained(config.model.name)
         self.model.to(self.device)
 
@@ -56,7 +58,7 @@ class WhisperTrainer:
         self.model.generation_config.repetition_penalty = 1.2
         self.model.generation_config.no_repeat_ngram_size = 3
         self.model.generation_config.length_penalty = 0.8
-        self.model.generation_config.max_length = 128
+        self.model.generation_config.max_length = int(config.model.max_length)
         self.model.generation_config.early_stopping = True
         
         # Initialize metrics
@@ -116,7 +118,8 @@ class WhisperTrainer:
             learning_rate=float(self.config.training.learning_rate),
             weight_decay=float(self.config.training.weight_decay),
             warmup_steps=int(self.config.training.warmup_steps),
-            max_steps=int(self.config.training.max_steps),
+            num_train_epochs=float(self.config.training.num_train_epochs) if self.config.training.num_train_epochs is not None else 3.0,
+            max_steps=int(self.config.training.max_steps) if self.config.training.max_steps is not None else -1,
             seed=int(self.config.training.seed),
             lr_scheduler_type=str(self.config.training.lr_scheduler_type),
             adam_beta1=float(self.config.training.adam_beta1),
@@ -141,6 +144,7 @@ class WhisperTrainer:
             push_to_hub=bool(self.config.huggingface.push_to_hub),
             hub_model_id=str(self.config.huggingface.hub_model_id) if self.config.huggingface.hub_model_id else None,
             hub_private_repo=bool(self.config.huggingface.hub_private_repo),
+            max_grad_norm=float(self.config.training.max_grad_norm),
         ) 
 
     
@@ -260,10 +264,14 @@ class WhisperTrainer:
 
     def _materialize_iterable_eval(self, eval_dataset: IterableDataset) -> Dataset:
         """Materialize a small eval dataset from streaming data."""
-        max_samples = int(getattr(self.config.data, "eval_max_samples", 1000))
-        max_samples = max(1, max_samples)
+        max_samples = self.config.data.eval_max_samples
         
-        samples = list(eval_dataset.take(max_samples))
+        if max_samples is None:
+            logger.info("Materializing full evaluation dataset...")
+            samples = list(eval_dataset)
+        else:
+            max_samples = max(1, int(max_samples))
+            samples = list(eval_dataset.take(max_samples))
         if not samples:
             logger.warning("Materialized evaluation dataset is empty! Evaluation will fail to produce metrics.")
             
