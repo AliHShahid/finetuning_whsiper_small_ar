@@ -443,11 +443,6 @@ class WhisperDataProcessor:
             )
 
             raw_dataset = raw_dataset.map(self._resolve_streaming_row)
-            allowed_readers = self._get_allowed_readers()
-            raw_dataset = raw_dataset.filter(
-                self._streaming_filter_row,
-                fn_kwargs={"allowed_readers": allowed_readers},
-            )
 
             buffer_size = min(10000, total_rows)
             if buffer_size > 1:
@@ -597,8 +592,8 @@ class DataCollator:
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         """Collate batch of features."""
         # Extract input features and labels
-        input_features = [torch.tensor(feature["input_features"]) for feature in features]
-        labels = [torch.tensor(feature["labels"]) for feature in features]
+        input_features = [torch.as_tensor(feature["input_features"]) for feature in features]
+        labels = [torch.as_tensor(feature["labels"]) for feature in features]
         
         # Pad sequences
         input_features = torch.stack(input_features)

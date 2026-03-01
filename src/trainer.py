@@ -262,4 +262,9 @@ class WhisperTrainer:
         """Materialize a small eval dataset from streaming data."""
         max_samples = int(getattr(self.config.data, "eval_max_samples", 1000))
         max_samples = max(1, max_samples)
-        return Dataset.from_list(list(eval_dataset.take(max_samples)))
+        
+        samples = list(eval_dataset.take(max_samples))
+        if not samples:
+            logger.warning("Materialized evaluation dataset is empty! Evaluation will fail to produce metrics.")
+            
+        return Dataset.from_list(samples)
