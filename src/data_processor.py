@@ -38,6 +38,7 @@ class WhisperDataProcessor:
         self.allowed_readers = getattr(config.data, "allowed_readers", None)
         self.dataset_root: Optional[Path] = None
         self.kaggle_dataset_slug = ""
+        self.shuffle_buffer_size = int(getattr(config.data, "shuffle_buffer_size", 1000))
         self._kaggle_path_index: Optional[Dict[str, str]] = None
         
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
@@ -444,7 +445,7 @@ class WhisperDataProcessor:
 
             raw_dataset = raw_dataset.map(self._resolve_streaming_row)
 
-            buffer_size = min(10000, total_rows)
+            buffer_size = self.shuffle_buffer_size
             if buffer_size > 1:
                 raw_dataset = raw_dataset.shuffle(seed=42, buffer_size=buffer_size)
 

@@ -37,6 +37,7 @@ class DataConfig:
     train_split: float = 0.8
     val_split: float = 0.1
     test_split: float = 0.1
+    shuffle_buffer_size: int = 1000
 
 @dataclass
 class TrainingConfig:

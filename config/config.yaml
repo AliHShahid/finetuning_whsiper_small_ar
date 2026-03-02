@@ -12,7 +12,8 @@ model:
 
 data:
   source: "kaggle"
-  streaming: false
+  streaming: true
+  shuffle_buffer_size: 1000
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"
