@@ -39,7 +39,7 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  eval_max_samples: null  # Number of samples to materialize for evaluation
+  eval_max_samples: 500  # Number of samples to materialize for evaluation
 
 training:
   output_dir: "./models/whisper-finetuned"
