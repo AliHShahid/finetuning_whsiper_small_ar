@@ -34,8 +34,8 @@ data:
   text_column: "TRANSCRIPT"
   duration_column: "DURATION"
   sampling_rate: 16000
-  max_duration: 40.0  # seconds
-  min_duration: 1.0   # seconds
+  max_duration: 30.0  # seconds (Whisper's limit)
+  min_duration: 0.5   # seconds
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1

@@ -282,11 +282,23 @@ class WhisperDataProcessor:
         return row
 
     def _streaming_filter_row(self, row: Dict, allowed_readers: Optional[set] = None) -> bool:
-        """Filter streaming rows by reader list and file existence."""
+        """Filter streaming rows by reader list, file existence and duration."""
+        # 1. Filter by reader
         if allowed_readers:
             reader = self._extract_reader_from_path(row.get(self.audio_column, ""))
             if reader.lower() not in allowed_readers:
                 return False
+        
+        # 2. Filter by duration (if metadata available)
+        if self.duration_column and self.duration_column in row:
+            try:
+                duration = float(row[self.duration_column])
+                if duration < self.min_duration or duration > self.max_duration:
+                    return False
+            except (ValueError, TypeError):
+                pass
+
+        # 3. Filter by file existence
         return Path(row.get(self.audio_column, "")).exists()
 
     def _extract_reader_from_path(self, file_path: str) -> str:
@@ -337,6 +349,15 @@ class WhisperDataProcessor:
             df = df.copy()
             df[self.audio_column] = df[self.audio_column].astype(str).apply(self._resolve_audio_path)
             
+            # Filter by duration if available
+            if self.duration_column and self.duration_column in df.columns:
+                before = len(df)
+                df = df[
+                    (df[self.duration_column] >= self.min_duration) & 
+                    (df[self.duration_column] <= self.max_duration)
+                ]
+                logger.info(f"Filtered by duration ({self.min_duration}s - {self.max_duration}s): {before} -> {len(df)} rows")
+
             # Validate file paths
             valid_files = []
             for idx, row in tqdm(df.iterrows(), total=len(df), desc="Validating audio files"):
