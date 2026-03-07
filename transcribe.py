@@ -52,9 +52,19 @@ except Exception as e:
 # =====================================
 print(f"Loading model: {model_id}...")
 try:
-    model = WhisperForConditionalGeneration.from_pretrained(model_id).to(device)
+    # Check if this is a PEFT model (directory contains adapter_config.json)
+    is_peft = os.path.isdir(model_id) and os.path.exists(os.path.join(model_id, "adapter_config.json"))
+    
+    if is_peft:
+        print("Detected PEFT adapter. Loading with PeftModel...")
+        from peft import PeftModel, PeftConfig
+        config = PeftConfig.from_pretrained(model_id)
+        model = WhisperForConditionalGeneration.from_pretrained(config.base_model_name_or_path).to(device)
+        model = PeftModel.from_pretrained(model, model_id)
+    else:
+        model = WhisperForConditionalGeneration.from_pretrained(model_id).to(device)
 except Exception as e:
-    print(f"Error loading model from {model_id}. Ensure you are logged into HuggingFace or the model is public.")
+    print(f"Error loading model from {model_id}: {e}")
     print(f"Fallback to base model for testing script functionality...")
     model = WhisperForConditionalGeneration.from_pretrained(base_model).to(device)
 

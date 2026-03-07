@@ -9,6 +9,14 @@ model:
     repetition_penalty: 1.2
     no_repeat_ngram_size: 3
     early_stopping: true
+  lora:
+    enabled: true
+    r: 32
+    alpha: 64
+    target_modules: ["q_proj", "v_proj"]
+    dropout: 0.05
+    bias: "none"
+
 
 data:
   source: "kaggle"

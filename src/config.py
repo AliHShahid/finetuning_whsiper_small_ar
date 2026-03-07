@@ -10,12 +10,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 @dataclass
+class LoraConfig:
+    enabled: bool = False
+    r: int = 8
+    alpha: int = 16
+    target_modules: list = field(default_factory=lambda: ["q_proj", "v_proj"])
+    dropout: float = 0.05
+    bias: str = "none"
+
+@dataclass
 class ModelConfig:
     name: str = "openai/whisper-base"
     max_length: int = 225
     language: str = "en"
     task: str = "transcribe"
     generation_config: Dict[str, Any] = field(default_factory=dict)
+    lora: LoraConfig = field(default_factory=LoraConfig)
 
 @dataclass
 class DataConfig:
@@ -95,7 +105,14 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
         config_dict = yaml.safe_load(f)
     
     # Convert nested dict to dataclass
-    model_config = ModelConfig(**config_dict.get('model', {}))
+    lora_dict = config_dict.get('model', {}).get('lora', {})
+    lora_config = LoraConfig(**lora_dict) if lora_dict else LoraConfig()
+    
+    model_data = config_dict.get('model', {}).copy()
+    if 'lora' in model_data:
+        del model_data['lora']
+    model_config = ModelConfig(**{**model_data, 'lora': lora_config})
+    
     data_config = DataConfig(**config_dict.get('data', {}))
     training_config = TrainingConfig(**config_dict.get('training', {}))
     huggingface_config = HuggingFaceConfig(**config_dict.get('huggingface', {}))

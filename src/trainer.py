@@ -19,6 +19,12 @@ from .data_processor import DataCollator
 from .config import Config
 from .utils import normalize_arabic_text
 
+try:
+    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel
+    PEFT_AVAILABLE = True
+except ImportError:
+    PEFT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class WhisperTrainer:
@@ -39,10 +45,32 @@ class WhisperTrainer:
         self.model = WhisperForConditionalGeneration.from_pretrained(config.model.name)
         self.model.to(self.device)
 
-        # Freeze the encoder BEFORE Seq2SeqTrainer initialization
-        # This ensures the optimizer (created by Trainer) does not track these parameters
-        self.model.model.encoder.requires_grad_(False)
-        logger.info("Encoder has been frozen (requires_grad=False)")
+        # Apply LoRA if enabled
+        if config.model.lora.enabled:
+            if not PEFT_AVAILABLE:
+                raise ImportError("PEFT is enabled in config but peft library is not installed.")
+            
+            logger.info("Applying LoRA to the model...")
+            lora_config = LoraConfig(
+                r=config.model.lora.r,
+                lora_alpha=config.model.lora.alpha,
+                target_modules=config.model.lora.target_modules,
+                lora_dropout=config.model.lora.dropout,
+                bias=config.model.lora.bias,
+                task_type="SEQ_2_SEQ_LM"
+            )
+            
+            # If using gradient checkpointing with PEFT, we need this
+            if config.training.gradient_checkpointing:
+                self.model.gradient_checkpointing_enable()
+            
+            self.model = get_peft_model(self.model, lora_config)
+            self.model.print_trainable_parameters()
+        else:
+            # Freeze the encoder ONLY if NOT using LoRA
+            # (LoRA freezes the whole model and then unfreezes only the adapter layers)
+            self.model.model.encoder.requires_grad_(False)
+            logger.info("Encoder has been frozen (requires_grad=False)")
 
         # Enable SpecAugment for better robustness
         if hasattr(self.processor.feature_extractor, "apply_spec_augment"):
@@ -231,10 +259,15 @@ class WhisperTrainer:
         logger.info(f"Saving model to {self.config.training.output_dir}")
         
         # Create output directory
-        Path(self.config.training.output_dir).mkdir(parents=True, exist_ok=True)
+        output_dir = Path(self.config.training.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         # Save model and processor
-        trainer.save_model()
+        if hasattr(self.model, "save_pretrained"):
+            self.model.save_pretrained(self.config.training.output_dir)
+        else:
+            trainer.save_model()
+            
         self.processor.save_pretrained(self.config.training.output_dir)
         
         logger.info("Model saved successfully")
