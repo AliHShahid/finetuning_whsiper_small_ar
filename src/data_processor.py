@@ -44,9 +44,9 @@ class WhisperDataProcessor:
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
         """Load dataset from a local CSV file."""
         if str(csv_path).lower().endswith(".tsv"):
-            df = pd.read_csv(csv_path, sep="\t")
+            df = pd.read_csv(csv_path, sep="\t", encoding="utf-8")
         else:
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, encoding="utf-8")
         logger.info(f"Loaded local CSV with {len(df)} rows")
         return df
 
@@ -382,20 +382,19 @@ class WhisperDataProcessor:
             file_path = batch[self.audio_column]
 
             # Load audio
-            waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
+            try:
+                waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
+            except Exception as audio_err:
+                logger.error(f"Failed to load audio {file_path}: {audio_err}")
+                return self._return_dummy_batch(batch)
 
             # Validate duration
             duration = len(waveform) / sr
             if duration < self.min_duration or duration > self.max_duration:
                 logger.warning(
-                    f"Audio duration {duration:.2f}s outside valid range for {file_path}"
+                    f"Audio duration {duration:.2f}s outside valid range ({self.min_duration}-{self.max_duration}s) for {file_path}. Skipping."
                 )
-                target_length = int(self.sampling_rate * min(duration, self.max_duration))
-                if len(waveform) > target_length:
-                    waveform = waveform[:target_length]
-                elif len(waveform) < int(self.sampling_rate * self.min_duration):
-                    pad_length = int(self.sampling_rate * self.min_duration) - len(waveform)
-                    waveform = np.pad(waveform, (0, pad_length), mode="constant")
+                return self._return_dummy_batch(batch)
 
             # Extract features directly without storing raw audio
             input_features = self.processor.feature_extractor(
@@ -424,10 +423,13 @@ class WhisperDataProcessor:
             logger.error(
                 f"Error preparing features for {batch.get(self.audio_column, 'unknown')}: {e}"
             )
-            # Return dummy features for failed samples
-            batch["input_features"] = torch.zeros((80, 3000))
-            batch["labels"] = torch.full((self.config.model.max_length,), -100)
-            return batch
+            return self._return_dummy_batch(batch)
+
+    def _return_dummy_batch(self, batch: Dict) -> Dict:
+        """Return dummy features for failed samples to avoid crashing training."""
+        batch["input_features"] = torch.zeros((80, 3000))
+        batch["labels"] = torch.full((self.config.model.max_length,), -100)
+        return batch
     
     def create_dataset(self, csv_path: Optional[str] = None) -> DatasetDict:
         """Create train/validation/test datasets."""
