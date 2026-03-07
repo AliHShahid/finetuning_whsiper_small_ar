@@ -11,7 +11,7 @@ load_dotenv()
 
 @dataclass
 class ModelConfig:
-    name: str = "openai/whisper-small"
+    name: str = "openai/whisper-base"
     max_length: int = 225
     language: str = "en"
     task: str = "transcribe"

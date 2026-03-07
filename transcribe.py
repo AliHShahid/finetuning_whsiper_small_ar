@@ -15,7 +15,7 @@ from transformers import (
 # =====================================
 # If your finetuned model is local, use the local path instead of model_id
 model_id = "alihassanshahid/arabic-whisper" # Or local path like "./models/whisper-finetuned"
-base_model = "openai/whisper-small"
+base_model = "openai/whisper-base"
 audio_path = "001001 (1).mp3"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

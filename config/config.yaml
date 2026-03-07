@@ -1,6 +1,6 @@
 # Whisper Fine-tuning Configuration
 model:
-  name: "openai/whisper-small"
+  name: "openai/whisper-base"
   max_length: 256
   language: "ar"
   task: "transcribe"
@@ -100,5 +100,5 @@ logging:
 
 huggingface:
   push_to_hub: false
-  hub_model_id: "alihassanshahid/whisper-small-finetuned"
+  hub_model_id: "alihassanshahid/whisper-base-finetuned"
   hub_private_repo: true
