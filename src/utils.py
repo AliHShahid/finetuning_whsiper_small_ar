@@ -42,13 +42,17 @@ def normalize_arabic_text(text: str) -> str:
         return ""
 
     normalized = text
-    # Remove diacritics
+    # Map alef wasla to standard alef
+    normalized = normalized.replace("\u0671", "ا")
+    
+    # Remove diacritics (including dagger alef \u0670)
     normalized = re.sub(r"[\u064B-\u065F\u0670\u06D6-\u06ED]", "", normalized)
-    # Remove digits and common punctuation
-    normalized = re.sub(r"[\d\.\!\?\,\(\)\[\]\{\}\<\>\/\\\|]", "", normalized)
+    # Remove digits and common punctuation (including Arabic ones)
+    normalized = re.sub(r"[\d\.\!\?\,\(\)\[\]\{\}\<\>\/\\\|،؛؟]", "", normalized)
     normalized = normalized.replace("ـ", "")
     normalized = normalized.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
     normalized = normalized.replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي")
+    normalized = normalized.replace("ة", "ه") # Standardize teh marbuta
     normalized = re.sub(r"\s+", " ", normalized).strip()
     return normalized
 

@@ -81,10 +81,10 @@ class WhisperTrainer:
         self.model.generation_config.task = "transcribe"
         self.model.generation_config.forced_decoder_ids = None
         
-        # Robust decoding parameters
+        # Relaxed decoding parameters for Quranic text
         self.model.generation_config.num_beams = 5
-        self.model.generation_config.repetition_penalty = 1.2
-        self.model.generation_config.no_repeat_ngram_size = 3
+        self.model.generation_config.repetition_penalty = 1.1 # Reduced from 1.2
+        self.model.generation_config.no_repeat_ngram_size = 0 # Disabled to allow repetitive verses
         self.model.generation_config.length_penalty = 0.8
         self.model.generation_config.max_length = int(config.model.max_length)
         self.model.generation_config.early_stopping = True

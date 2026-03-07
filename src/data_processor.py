@@ -391,12 +391,13 @@ class WhisperDataProcessor:
             # Validate duration
             duration = len(waveform) / sr
             if duration < self.min_duration or duration > self.max_duration:
+                # Log only once to avoid flooding
                 logger.warning(
                     f"Audio duration {duration:.2f}s outside valid range ({self.min_duration}-{self.max_duration}s) for {file_path}. Skipping."
                 )
                 return self._return_dummy_batch(batch)
 
-            # Extract features directly without storing raw audio
+            # Extract features directly
             input_features = self.processor.feature_extractor(
                 waveform,
                 sampling_rate=self.sampling_rate,
@@ -404,6 +405,10 @@ class WhisperDataProcessor:
             ).input_features[0]
 
             transcription = str(batch.get(self.text_column, ""))
+            # Normalize labels before training to match evaluation cleaning
+            from .utils import normalize_arabic_text
+            transcription = normalize_arabic_text(transcription)
+
             labels = self.processor.tokenizer(
                 transcription,
                 return_tensors="pt",

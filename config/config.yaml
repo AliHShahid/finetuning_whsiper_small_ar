@@ -25,17 +25,7 @@ data:
   csv_path: ""
   metadata_path: "transcripts.tsv"
   readerlist_path: "readerlist.tsv"
-  allowed_readers: [
-    "Abdullaah_3awwaad_Al-Juhaynee_128kbps", 
-    "Abdurrahmaan_As-Sudais_64kbps",
-    "tunaiji_64kbps",
-    "husary_qasr_64kbps",
-    "Yasser_Ad-Dussary_128kbps",
-    "Saood_ash-Shuraym_64kbps",
-    "Muhsin_Al_Qasim_192kbps",
-    "Hudhaify_64kbps",
-    "Hani_Rifai_192kbps"
-  ]
+  allowed_readers: [] # Empty list means full dataset (excluding filtered)
   kaggle_dataset: "bigguyubuntu/quran-ayat-speech-to-text"
   kaggle_file_path: ""
   audio_column: "PATH"
@@ -43,7 +33,7 @@ data:
   duration_column: "DURATION"
   sampling_rate: 16000
   max_duration: 30.0  # seconds (Whisper's limit)
-  min_duration: 0.5   # seconds
+  min_duration: 0.1   # seconds
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
