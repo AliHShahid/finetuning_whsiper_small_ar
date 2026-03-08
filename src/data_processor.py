@@ -2,6 +2,7 @@
 
 import pandas as pd
 import librosa
+import torchaudio
 import torch
 import numpy as np
 from pathlib import Path
@@ -40,6 +41,17 @@ class WhisperDataProcessor:
         self.kaggle_dataset_slug = ""
         self.shuffle_buffer_size = int(getattr(config.data, "shuffle_buffer_size", 1000))
         self._kaggle_path_index: Optional[Dict[str, str]] = None
+        self.loading_failures = 0
+        self.total_processed = 0
+        
+        # Determine torchaudio backend
+        try:
+            backends = torchaudio.list_audio_backends()
+            self.torchaudio_backend = "ffmpeg" if "ffmpeg" in backends else None
+            if self.torchaudio_backend:
+                logger.info(f"Using torchaudio with {self.torchaudio_backend} backend for robust decoding")
+        except Exception:
+            self.torchaudio_backend = None
         
     def _load_local_csv(self, csv_path: str) -> pd.DataFrame:
         """Load dataset from a local CSV file."""
@@ -376,16 +388,42 @@ class WhisperDataProcessor:
             logger.error(f"Error loading dataset metadata: {e}")
             raise
     
+    def _load_audio(self, file_path: str) -> Tuple[np.ndarray, int]:
+        """Load audio file robustly using torchaudio (ffmpeg) or librosa fallback."""
+        # Try torchaudio first if ffmpeg is available (it's much more robust for MP3s)
+        if self.torchaudio_backend == "ffmpeg":
+            try:
+                waveform, sr = torchaudio.load(file_path, format="mp3")
+                if sr != self.sampling_rate:
+                    import torchaudio.transforms as T
+                    resampler = T.Resample(sr, self.sampling_rate)
+                    waveform = resampler(waveform)
+                
+                # Convert to mono if needed and then to numpy
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+                
+                return waveform.numpy().flatten(), self.sampling_rate
+            except Exception as e:
+                logger.warning(f"Torchaudio failed to load {file_path}, falling back to librosa: {e}")
+
+        # Fallback to librosa
+        return librosa.load(file_path, sr=self.sampling_rate)
+
     def prepare_features(self, batch: Dict) -> Dict:
         """Load audio and prepare model-ready features in a single pass."""
         try:
             file_path = batch[self.audio_column]
 
             # Load audio
+            self.total_processed += 1
             try:
-                waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
+                waveform, sr = self._load_audio(file_path)
             except Exception as audio_err:
+                self.loading_failures += 1
                 logger.error(f"Failed to load audio {file_path}: {audio_err}")
+                if self.total_processed % 50 == 0:
+                    logger.info(f"Audio loading stats: {self.loading_failures}/{self.total_processed} failures")
                 return self._return_dummy_batch(batch)
 
             # Validate duration

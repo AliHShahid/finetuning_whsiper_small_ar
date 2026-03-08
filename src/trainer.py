@@ -104,14 +104,22 @@ class WhisperTrainer:
         predictions, labels = eval_pred
         
         # Decode predictions and labels
-        decoded_preds = self.processor.batch_decode(predictions, skip_special_tokens=True)
+        decoded_preds_raw = self.processor.batch_decode(predictions, skip_special_tokens=True)
         
         # Replace -100 in labels with pad token id
         labels = np.where(labels != -100, labels, self.processor.tokenizer.pad_token_id)
-        decoded_labels = self.processor.batch_decode(labels, skip_special_tokens=True)
+        decoded_labels_raw = self.processor.batch_decode(labels, skip_special_tokens=True)
 
-        decoded_preds = [normalize_arabic_text(text) for text in decoded_preds]
-        decoded_labels = [normalize_arabic_text(text) for text in decoded_labels]
+        decoded_preds = [normalize_arabic_text(text) for text in decoded_preds_raw]
+        decoded_labels = [normalize_arabic_text(text) for text in decoded_labels_raw]
+        
+        # Log a few samples for visibility (raw vs normalized)
+        for i in range(min(3, len(decoded_preds))):
+            logger.info(f"Sample {i}:")
+            logger.info(f"  Ref (Raw):  {decoded_labels_raw[i]}")
+            logger.info(f"  Ref (Norm): {decoded_labels[i]}")
+            logger.info(f"  Pred (Raw):  {decoded_preds_raw[i]}")
+            logger.info(f"  Pred (Norm): {decoded_preds[i]}")
         
         # Compute WER
         wer = self.wer_metric.compute(predictions=decoded_preds, references=decoded_labels)
@@ -119,12 +127,6 @@ class WhisperTrainer:
         # Compute CER
         cer = self.cer_metric.compute(predictions=decoded_preds, references=decoded_labels)
         
-        # Log a few samples for visibility
-        for i in range(min(3, len(decoded_preds))):
-            logger.info(f"Sample {i}:")
-            logger.info(f"  Ref: {decoded_labels[i]}")
-            logger.info(f"  Pred: {decoded_preds[i]}")
-
         metrics = {
             "wer": wer,
             "cer": cer
@@ -227,7 +229,7 @@ class WhisperTrainer:
             "eval_dataset": eval_dataset,
             "data_collator": self.data_collator,
             "compute_metrics": self.compute_metrics,
-            "callbacks": [] if self.config.data.streaming else [EarlyStoppingCallback(early_stopping_patience=3)],
+            "callbacks": [EarlyStoppingCallback(early_stopping_patience=3)],
         }
         trainer_kwargs.update(self._get_trainer_processing_kwargs())
 
@@ -296,15 +298,34 @@ class WhisperTrainer:
         return eval_results
 
     def _materialize_iterable_eval(self, eval_dataset: IterableDataset) -> Dataset:
-        """Materialize a small eval dataset from streaming data."""
+        """Materialize a small eval dataset from streaming data, skipping failed samples."""
         max_samples = self.config.data.eval_max_samples
-        
         if max_samples is None:
             logger.info("Materializing full evaluation dataset...")
-            samples = list(eval_dataset)
+            it = iter(eval_dataset)
         else:
             max_samples = max(1, int(max_samples))
-            samples = list(eval_dataset.take(max_samples))
+            logger.info(f"Materializing up to {max_samples} evaluation samples...")
+            it = iter(eval_dataset.take(max_samples * 2)) # Take extra to account for failures
+
+        samples = []
+        failures = 0
+        try:
+            for sample in it:
+                # Check for dummy features indicating load failure
+                if torch.all(sample["input_features"] == 0):
+                    failures += 1
+                    continue
+                
+                samples.append(sample)
+                if max_samples and len(samples) >= max_samples:
+                    break
+        except Exception as e:
+            logger.error(f"Error during eval materialization: {e}")
+
+        if failures:
+            logger.warning(f"Skipped {failures} failed samples during evaluation materialization")
+        
         if not samples:
             logger.warning("Materialized evaluation dataset is empty! Evaluation will fail to produce metrics.")
             
