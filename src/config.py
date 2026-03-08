@@ -70,6 +70,7 @@ class TrainingConfig:
     logging_steps: int = 50
     save_steps: int = 200
     save_total_limit: int = 3
+    early_stopping_patience: int = 5
     fp16: bool = True
     gradient_checkpointing: bool = True
     dataloader_num_workers: int = 4

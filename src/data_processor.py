@@ -389,11 +389,15 @@ class WhisperDataProcessor:
             raise
     
     def _load_audio(self, file_path: str) -> Tuple[np.ndarray, int]:
-        """Load audio file robustly using torchaudio (ffmpeg) or librosa fallback."""
+        """Load audio file robustly using torchaudio (ffmpeg), librosa, or soundfile fallback."""
+        # Clean file path for processing
+        file_path = str(file_path).replace("\\", "/")
+        
         # Try torchaudio first if ffmpeg is available (it's much more robust for MP3s)
         if self.torchaudio_backend == "ffmpeg":
             try:
-                waveform, sr = torchaudio.load(file_path, format="mp3")
+                # Explicitly specify format for MP3 robustness
+                waveform, sr = torchaudio.load(file_path)
                 if sr != self.sampling_rate:
                     import torchaudio.transforms as T
                     resampler = T.Resample(sr, self.sampling_rate)
@@ -405,10 +409,27 @@ class WhisperDataProcessor:
                 
                 return waveform.numpy().flatten(), self.sampling_rate
             except Exception as e:
-                logger.warning(f"Torchaudio failed to load {file_path}, falling back to librosa: {e}")
+                logger.debug(f"Torchaudio failed to load {file_path}, trying librosa: {e}")
 
-        # Fallback to librosa
-        return librosa.load(file_path, sr=self.sampling_rate)
+        # Fallback to librosa with a broader range of possible issues
+        try:
+            waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
+            return waveform, sr
+        except Exception as e:
+            logger.warning(f"Librosa failed to load {file_path}: {e}")
+            
+        # Last resort: soundfile (sometimes works where others fail if headers are weird)
+        try:
+            import soundfile as sf
+            data, sr = sf.read(file_path)
+            if sr != self.sampling_rate:
+                data = librosa.resample(data, orig_sr=sr, target_sr=self.sampling_rate)
+            if len(data.shape) > 1:
+                data = np.mean(data, axis=1)
+            return data, self.sampling_rate
+        except Exception as e:
+            logger.error(f"All audio decoders failed for {file_path}: {e}")
+            raise
 
     def prepare_features(self, batch: Dict) -> Dict:
         """Load audio and prepare model-ready features in a single pass."""

@@ -81,11 +81,13 @@ class WhisperTrainer:
         self.model.generation_config.task = "transcribe"
         self.model.generation_config.forced_decoder_ids = None
         
-        # Relaxed decoding parameters for Quranic text
-        self.model.generation_config.num_beams = 5
-        self.model.generation_config.repetition_penalty = 1.1 # Reduced from 1.2
-        self.model.generation_config.no_repeat_ngram_size = 0 # Disabled to allow repetitive verses
-        self.model.generation_config.length_penalty = 0.8
+        # Generation parameters optimized for Quranic text
+        gen_config = config.model.generation_config
+        self.model.generation_config.num_beams = getattr(gen_config, "num_beams", 5)
+        self.model.generation_config.repetition_penalty = getattr(gen_config, "repetition_penalty", 1.1)
+        # Essential to allow repetitive verses in Quran
+        self.model.generation_config.no_repeat_ngram_size = getattr(gen_config, "no_repeat_ngram_size", 0)
+        self.model.generation_config.length_penalty = 1.0 # Standard for exact transcription
         self.model.generation_config.max_length = int(config.model.max_length)
         self.model.generation_config.early_stopping = True
         
@@ -114,12 +116,14 @@ class WhisperTrainer:
         decoded_labels = [normalize_arabic_text(text) for text in decoded_labels_raw]
         
         # Log a few samples for visibility (raw vs normalized)
-        for i in range(min(3, len(decoded_preds))):
-            logger.info(f"Sample {i}:")
-            logger.info(f"  Ref (Raw):  {decoded_labels_raw[i]}")
-            logger.info(f"  Ref (Norm): {decoded_labels[i]}")
-            logger.info(f"  Pred (Raw):  {decoded_preds_raw[i]}")
-            logger.info(f"  Pred (Norm): {decoded_preds[i]}")
+        for i in range(min(5, len(decoded_preds))):
+            logger.info(f"--- Sample {i} ---")
+            logger.info(f"Ref:  {decoded_labels[i]}")
+            logger.info(f"Pred: {decoded_preds[i]}")
+            if decoded_preds[i] != decoded_labels[i]:
+                # Log raw if there's a mismatch to help debug normalization
+                logger.debug(f"  Raw Pred: {decoded_preds_raw[i]}")
+                logger.debug(f"  Raw Ref:  {decoded_labels_raw[i]}")
         
         # Compute WER
         wer = self.wer_metric.compute(predictions=decoded_preds, references=decoded_labels)
@@ -229,7 +233,7 @@ class WhisperTrainer:
             "eval_dataset": eval_dataset,
             "data_collator": self.data_collator,
             "compute_metrics": self.compute_metrics,
-            "callbacks": [EarlyStoppingCallback(early_stopping_patience=3)],
+            "callbacks": [EarlyStoppingCallback(early_stopping_patience=int(self.config.training.early_stopping_patience))],
         }
         trainer_kwargs.update(self._get_trainer_processing_kwargs())
 
