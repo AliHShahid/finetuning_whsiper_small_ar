@@ -43,6 +43,9 @@ class WhisperDataProcessor:
         self._kaggle_path_index: Optional[Dict[str, str]] = None
         self.loading_failures = 0
         self.total_processed = 0
+        self.train_count = 0
+        self.val_count = 0
+        self.test_count = 0
         
         # Determine torchaudio backend
         try:
@@ -603,6 +606,16 @@ class WhisperDataProcessor:
                     ),
                 }
             )
+
+            # Store counts for potential max_steps calculation
+            self.train_count = train_count
+            self.val_count = val_count
+            self.test_count = test_count
+
+            # Also attach to the dataset object for easy access in trainer
+            dataset_dict["train"].total_count = train_count
+            dataset_dict["validation"].total_count = val_count
+            dataset_dict["test"].total_count = test_count
 
             return dataset_dict
         

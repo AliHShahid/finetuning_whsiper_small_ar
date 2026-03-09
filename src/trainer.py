@@ -218,6 +218,22 @@ class WhisperTrainer:
         logger.info("Starting training...")
         
         # Setup training arguments
+        # Calculate max_steps if streaming and not set
+        if self.config.data.streaming and (self.config.training.max_steps is None or self.config.training.max_steps <= 0):
+            train_dataset = dataset["train"]
+            if hasattr(train_dataset, "total_count") and train_dataset.total_count > 0:
+                import math
+                effective_batch_size = (
+                    int(self.config.training.per_device_train_batch_size) * 
+                    int(self.config.training.gradient_accumulation_steps)
+                )
+                steps_per_epoch = math.ceil(train_dataset.total_count / effective_batch_size)
+                self.config.training.max_steps = int(steps_per_epoch * self.config.training.num_train_epochs)
+                logger.info(f"Streaming enabled: Automatically set max_steps to {self.config.training.max_steps} "
+                           f"({steps_per_epoch} steps/epoch * {self.config.training.num_train_epochs} epochs)")
+            else:
+                logger.warning("Streaming enabled but no total_count found on train_dataset. max_steps must be set manually.")
+
         training_args = self.setup_training_arguments()
         
         # Create trainer
