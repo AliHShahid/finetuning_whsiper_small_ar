@@ -7,7 +7,7 @@ model:
   generation_config:
     num_beams: 5
     repetition_penalty: 1.2
-    no_repeat_ngram_size: 3
+    no_repeat_ngram_size: 0
     early_stopping: true
   lora:
     enabled: true
@@ -19,18 +19,19 @@ model:
 
 
 data:
-  source: "kaggle"
+  source: "huggingface"
+  huggingface_dataset: "tarteel-ai/everyayah"
   streaming: true
   shuffle_buffer_size: 1000
   csv_path: ""
-  metadata_path: "transcripts.tsv"
+  metadata_path: ""
   readerlist_path: "readerlist.tsv"
   allowed_readers: [] # Empty list means full dataset (excluding filtered)
   kaggle_dataset: "bigguyubuntu/quran-ayat-speech-to-text"
   kaggle_file_path: ""
-  audio_column: "PATH"
-  text_column: "TRANSCRIPT"
-  duration_column: "DURATION"
+  audio_column: "audio"
+  text_column: "text"
+  duration_column: "duration"
   sampling_rate: 16000
   max_duration: 30.0  # seconds (Whisper's limit)
   min_duration: 0.1   # seconds

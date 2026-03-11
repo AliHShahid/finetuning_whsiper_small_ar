@@ -7,10 +7,11 @@ import torch
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from datasets import Dataset, DatasetDict, IterableDatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, IterableDatasetDict, load_dataset, Audio
 from transformers import WhisperProcessor
 import logging
 from tqdm import tqdm
+import re
 
 try:
     import kagglehub
@@ -39,6 +40,7 @@ class WhisperDataProcessor:
         self.allowed_readers = getattr(config.data, "allowed_readers", None)
         self.dataset_root: Optional[Path] = None
         self.kaggle_dataset_slug = ""
+        self.hf_dataset_name = getattr(config.data, "huggingface_dataset", "")
         self.shuffle_buffer_size = int(getattr(config.data, "shuffle_buffer_size", 1000))
         self._kaggle_path_index: Optional[Dict[str, str]] = None
         self.loading_failures = 0
@@ -277,31 +279,47 @@ class WhisperDataProcessor:
                     readers.append(token)
         return readers
 
+    def _normalize_reader_name(self, name: str) -> str:
+        """Normalize reader name by lowering and stripping common suffixes."""
+        if not name:
+            return ""
+        name = name.lower()
+        # Strip suffixes like _64kbps, _128kbps, etc.
+        name = re.sub(r'_(?:\d+kbps|teacher|mujawwad|murattal|qasr|teacher)', '', name)
+        # Strip extra characters or spaces
+        name = name.strip()
+        return name
+
     def _get_allowed_readers(self) -> set:
         """Build a normalized set of allowed readers."""
         allowed_readers = set()
         readers_from_file = self._load_readerlist()
         if readers_from_file:
-            allowed_readers.update(reader.lower() for reader in readers_from_file)
+            allowed_readers.update(self._normalize_reader_name(reader) for reader in readers_from_file)
         if self.allowed_readers:
-            allowed_readers = set(reader.lower() for reader in self.allowed_readers)
+            allowed_readers = set(self._normalize_reader_name(reader) for reader in self.allowed_readers)
             if readers_from_file:
                 allowed_readers = allowed_readers.intersection(
-                    reader.lower() for reader in readers_from_file
+                    self._normalize_reader_name(reader) for reader in readers_from_file
                 )
         return allowed_readers
 
     def _resolve_streaming_row(self, row: Dict) -> Dict:
         """Resolve audio paths for streaming datasets."""
-        row[self.audio_column] = self._resolve_audio_path(row[self.audio_column])
+        if self.data_source != "huggingface":
+            row[self.audio_column] = self._resolve_audio_path(row[self.audio_column])
         return row
 
     def _streaming_filter_row(self, row: Dict, allowed_readers: Optional[set] = None) -> bool:
         """Filter streaming rows by reader list, file existence and duration."""
         # 1. Filter by reader
         if allowed_readers:
-            reader = self._extract_reader_from_path(row.get(self.audio_column, ""))
-            if reader.lower() not in allowed_readers:
+            # Check for 'reciter' column (HF) or extract from path (Kaggle)
+            reader = row.get("reciter", "")
+            if not reader:
+                reader = self._extract_reader_from_path(row.get(self.audio_column, ""))
+            
+            if not reader or self._normalize_reader_name(reader) not in allowed_readers:
                 return False
         
         # 2. Filter by duration (if metadata available)
@@ -313,8 +331,15 @@ class WhisperDataProcessor:
             except (ValueError, TypeError):
                 pass
 
-        # 3. Filter by file existence
-        return Path(row.get(self.audio_column, "")).exists()
+        # 3. Filter by file existence (only for Kaggle/Local)
+        if self.data_source != "huggingface":
+            path_val = row.get(self.audio_column, "")
+            # If it's a dict (resolved), skip existence check or check ['path']
+            if isinstance(path_val, dict):
+                return True
+            return Path(str(path_val)).exists()
+        
+        return True
 
     def _extract_reader_from_path(self, file_path: str) -> str:
         """Extract reader folder name from an audio path."""
@@ -437,12 +462,16 @@ class WhisperDataProcessor:
     def prepare_features(self, batch: Dict) -> Dict:
         """Load audio and prepare model-ready features in a single pass."""
         try:
-            file_path = batch[self.audio_column]
+            audio_data = batch[self.audio_column]
 
             # Load audio
             self.total_processed += 1
             try:
-                waveform, sr = self._load_audio(file_path)
+                if isinstance(audio_data, dict) and "array" in audio_data:
+                    waveform = audio_data["array"]
+                    sr = audio_data["sampling_rate"]
+                else:
+                    waveform, sr = self._load_audio(audio_data)
             except Exception as audio_err:
                 self.loading_failures += 1
                 logger.error(f"Failed to load audio {file_path}: {audio_err}")
@@ -516,67 +545,111 @@ class WhisperDataProcessor:
                         "Streaming requires data.metadata_path or data.kaggle_file_path for Kaggle sources"
                     )
                 source_csv = self._resolve_metadata_path(source_csv)
-
-            if not source_csv:
-                raise ValueError("Streaming requires data.metadata_path or data.csv_path")
-
-            delimiter = "\t" if str(source_csv).lower().endswith(".tsv") else ","
-            total_rows = self._count_metadata_rows(source_csv)
-            if total_rows <= 0:
-                raise ValueError("No data rows found in metadata file for streaming")
-
-            raw_dataset = load_dataset(
-                "csv",
-                data_files=source_csv,
-                delimiter=delimiter,
-                split="train",
-                streaming=True,
-            )
-
-            raw_dataset = raw_dataset.map(self._resolve_streaming_row)
-
-            buffer_size = self.shuffle_buffer_size
-            if buffer_size > 1:
-                raw_dataset = raw_dataset.shuffle(seed=42, buffer_size=buffer_size)
-
-            if total_rows < 3:
-                train_count = max(1, total_rows)
-                val_count = 0
-                test_count = max(0, total_rows - train_count)
-            else:
-                train_count = max(1, int(total_rows * self.config.data.train_split))
-                val_count = max(1, int(total_rows * self.config.data.val_split))
-                # Ensure we don't exceed total_rows
-                val_count = min(val_count, total_rows - train_count)
-                test_count = max(0, total_rows - train_count - val_count)
-
-            # Split raw_dataset before filtering to ensure splits are relative to file structure
-            train_split = raw_dataset.take(train_count)
-            remainder = raw_dataset.skip(train_count)
-            val_split = remainder.take(val_count) if val_count else remainder.take(0)
-            test_split = remainder.skip(val_count)
-            if test_count:
-                test_split = test_split.take(test_count)
-
-            # Now apply final filtering to each split
-            allowed_readers = self._get_allowed_readers()
-            filter_kwargs = {"allowed_readers": allowed_readers}
-            
-            train_split = train_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
-            val_split = val_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
-            test_split = test_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
-
-            dataset_dict = IterableDatasetDict(
-                {
+            elif self.data_source == "huggingface":
+                if not self.hf_dataset_name:
+                    raise ValueError("data.huggingface_dataset must be set when data.source is 'huggingface'")
+                
+                logger.info(f"Loading Hugging Face dataset: {self.hf_dataset_name}")
+                dataset_dict = load_dataset(self.hf_dataset_name, streaming=True)
+                # Cast the audio column early for efficiency
+                dataset_dict = dataset_dict.cast_column(self.audio_column, Audio(sampling_rate=self.sampling_rate))
+                
+                # Check for standard splits
+                train_split = dataset_dict["train"]
+                val_split = dataset_dict.get("validation", dataset_dict.get("test"))
+                test_split = dataset_dict.get("test")
+                
+                # Apply reader filtering if specified
+                allowed_readers = self._get_allowed_readers()
+                if allowed_readers:
+                    filter_kwargs = {"allowed_readers": allowed_readers}
+                    train_split = train_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+                    val_split = val_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs) if val_split else None
+                    test_split = test_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs) if test_split else None
+                
+                # Reconstruct IterableDatasetDict
+                dataset_dict = IterableDatasetDict({
                     "train": train_split,
                     "validation": val_split,
-                    "test": test_split,
-                }
-            )
+                    "test": test_split
+                } if val_split and test_split else {"train": train_split}) # Handle single split if needed
+                
+                # Use dataset_dict logic below for mapping
+                raw_dataset = train_split # for feature/column extraction
+            
+            if self.data_source != "huggingface":
+                if not source_csv:
+                    raise ValueError("Streaming requires data.metadata_path or data.csv_path")
 
-            logger.info(
-                f"Streaming raw split points: train={train_count}, val={val_count}, test={test_count}"
-            )
+            if self.data_source != "huggingface":
+                delimiter = "\t" if str(source_csv).lower().endswith(".tsv") else ","
+                total_rows = self._count_metadata_rows(source_csv)
+                if total_rows <= 0:
+                    raise ValueError("No data rows found in metadata file for streaming")
+
+                raw_dataset = load_dataset(
+                    "csv",
+                    data_files=source_csv,
+                    delimiter=delimiter,
+                    split="train",
+                    streaming=True,
+                )
+
+                raw_dataset = raw_dataset.map(self._resolve_streaming_row)
+
+                buffer_size = self.shuffle_buffer_size
+                if buffer_size > 1:
+                    raw_dataset = raw_dataset.shuffle(seed=42, buffer_size=buffer_size)
+
+                if total_rows < 3:
+                    train_count = max(1, total_rows)
+                    val_count = 0
+                    test_count = max(0, total_rows - train_count)
+                else:
+                    train_count = max(1, int(total_rows * self.config.data.train_split))
+                    val_count = max(1, int(total_rows * self.config.data.val_split))
+                    # Ensure we don't exceed total_rows
+                    val_count = min(val_count, total_rows - train_count)
+                    test_count = max(0, total_rows - train_count - val_count)
+
+                # Split raw_dataset before filtering to ensure splits are relative to file structure
+                train_split = raw_dataset.take(train_count)
+                remainder = raw_dataset.skip(train_count)
+                val_split = remainder.take(val_count) if val_count else remainder.take(0)
+                test_split = remainder.skip(val_count)
+                if test_count:
+                    test_split = test_split.take(test_count)
+
+                # Now apply final filtering to each split
+                allowed_readers = self._get_allowed_readers()
+                filter_kwargs = {"allowed_readers": allowed_readers}
+                
+                train_split = train_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+                val_split = val_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+                test_split = test_split.filter(self._streaming_filter_row, fn_kwargs=filter_kwargs)
+
+                dataset_dict = IterableDatasetDict(
+                    {
+                        "train": train_split,
+                        "validation": val_split,
+                        "test": test_split,
+                    }
+                )
+
+                logger.info(
+                    f"Streaming raw split points: train={train_count}, val={val_count}, test={test_count}"
+                )
+            else:
+                # For Hugging Face datasets like EveryAyah, splits are already provided.
+                # Use approximate counts for tarteel-ai/everyayah for trainer step estimation.
+                if self.hf_dataset_name == "tarteel-ai/everyayah":
+                    train_count = 187785
+                    val_count = 23474
+                    test_count = 23473
+                else:
+                    train_count = 0
+                    val_count = 0
+                    test_count = 0
 
             logger.info("Preparing model features...")
             base_columns = []

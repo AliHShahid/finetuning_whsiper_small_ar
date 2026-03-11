@@ -36,6 +36,7 @@ class DataConfig:
     metadata_path: str = ""
     kaggle_dataset: str = ""
     kaggle_file_path: str = ""
+    huggingface_dataset: str = ""
     audio_column: str = "FilePath"
     text_column: str = "Transcript"
     duration_column: str = ""
