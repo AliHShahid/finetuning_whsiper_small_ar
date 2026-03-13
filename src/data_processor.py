@@ -418,14 +418,28 @@ class WhisperDataProcessor:
     
     def _load_audio(self, file_path: str) -> Tuple[np.ndarray, int]:
         """Load audio file robustly using torchaudio (ffmpeg), librosa, or soundfile fallback."""
-        # Clean file path for processing
-        file_path = str(file_path).replace("\\", "/")
+        # 1. Handle case where it's already a decoded dict or lazy decoder object
+        if not isinstance(file_path, (str, Path)):
+            if isinstance(file_path, dict) and "array" in file_path:
+                return file_path["array"], file_path.get("sampling_rate", self.sampling_rate)
+            
+            # Handle lazy decoder objects (e.g. datasets with torchcodec)
+            if hasattr(file_path, "decode") and callable(file_path.decode):
+                try:
+                    decoded = file_path.decode()
+                    if isinstance(decoded, dict) and "array" in decoded:
+                        return decoded["array"], decoded.get("sampling_rate", self.sampling_rate)
+                except Exception as e:
+                    logger.debug(f"Lazy decoding failed in _load_audio: {e}")
+
+        # 2. Clean file path for processing
+        file_path_str = str(file_path).replace("\\", "/")
         
         # Try torchaudio first if ffmpeg is available (it's much more robust for MP3s)
         if self.torchaudio_backend == "ffmpeg":
             try:
                 # Explicitly specify format for MP3 robustness
-                waveform, sr = torchaudio.load(file_path)
+                waveform, sr = torchaudio.load(file_path_str)
                 if sr != self.sampling_rate:
                     import torchaudio.transforms as T
                     resampler = T.Resample(sr, self.sampling_rate)
@@ -437,26 +451,28 @@ class WhisperDataProcessor:
                 
                 return waveform.numpy().flatten(), self.sampling_rate
             except Exception as e:
-                logger.debug(f"Torchaudio failed to load {file_path}, trying librosa: {e}")
+                logger.debug(f"Torchaudio failed to load {file_path_str}, trying librosa: {e}")
 
         # Fallback to librosa with a broader range of possible issues
         try:
-            waveform, sr = librosa.load(file_path, sr=self.sampling_rate)
+            waveform, sr = librosa.load(file_path_str, sr=self.sampling_rate)
             return waveform, sr
         except Exception as e:
-            logger.warning(f"Librosa failed to load {file_path}: {e}")
+            logger.warning(f"Librosa failed to load {file_path_str}: {e}")
             
         # Last resort: soundfile (sometimes works where others fail if headers are weird)
         try:
             import soundfile as sf
-            data, sr = sf.read(file_path)
-            if sr != self.sampling_rate:
-                data = librosa.resample(data, orig_sr=sr, target_sr=self.sampling_rate)
+            data, sr = sf.read(file_path_str)
+            # Convert to mono if needed before resampling
             if len(data.shape) > 1:
                 data = np.mean(data, axis=1)
+            if sr != self.sampling_rate:
+                import librosa
+                data = librosa.resample(data, orig_sr=sr, target_sr=self.sampling_rate)
             return data, self.sampling_rate
         except Exception as e:
-            logger.error(f"All audio decoders failed for {file_path}: {e}")
+            logger.error(f"All audio decoders failed for {file_path_str}: {e}")
             raise
 
     def prepare_features(self, batch: Dict) -> Dict:
@@ -470,11 +486,17 @@ class WhisperDataProcessor:
                 if isinstance(audio_data, dict) and "array" in audio_data:
                     waveform = audio_data["array"]
                     sr = audio_data["sampling_rate"]
+                elif hasattr(audio_data, "decode") and callable(audio_data.decode):
+                    # Handle lazy decoder objects (e.g. datasets with torchcodec)
+                    decoded = audio_data.decode()
+                    waveform = decoded["array"]
+                    sr = decoded["sampling_rate"]
                 else:
                     waveform, sr = self._load_audio(audio_data)
             except Exception as audio_err:
                 self.loading_failures += 1
-                logger.error(f"Failed to load audio {file_path}: {audio_err}")
+                audio_ident = str(audio_data)[:100] if not isinstance(audio_data, dict) else audio_data.get("path", "unknown")
+                logger.error(f"Failed to load audio {audio_ident}: {audio_err}")
                 if self.total_processed % 50 == 0:
                     logger.info(f"Audio loading stats: {self.loading_failures}/{self.total_processed} failures")
                 return self._return_dummy_batch(batch)
@@ -483,8 +505,9 @@ class WhisperDataProcessor:
             duration = len(waveform) / sr
             if duration < self.min_duration or duration > self.max_duration:
                 # Log only once to avoid flooding
+                audio_ident = str(audio_data)[:100] if not isinstance(audio_data, dict) else audio_data.get("path", "unknown")
                 logger.warning(
-                    f"Audio duration {duration:.2f}s outside valid range ({self.min_duration}-{self.max_duration}s) for {file_path}. Skipping."
+                    f"Audio duration {duration:.2f}s outside valid range ({self.min_duration}-{self.max_duration}s) for {audio_ident}. Skipping."
                 )
                 return self._return_dummy_batch(batch)
 
