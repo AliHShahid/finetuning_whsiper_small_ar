@@ -333,7 +333,7 @@ class WhisperTrainer:
         try:
             for sample in it:
                 # Check for dummy features indicating load failure
-                if torch.all(sample["input_features"] == 0):
+                if torch.all(torch.as_tensor(sample["input_features"]) == 0):
                     failures += 1
                     continue
                 
