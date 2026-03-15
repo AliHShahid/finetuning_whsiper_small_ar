@@ -432,6 +432,12 @@ class WhisperDataProcessor:
                 except Exception as e:
                     logger.debug(f"Lazy decoding failed in _load_audio: {e}")
 
+            # Handle dict-like features like torchcodec.AudioDecoder
+            try:
+                return file_path["array"], file_path.get("sampling_rate", self.sampling_rate) if isinstance(file_path, dict) else file_path["sampling_rate"]
+            except Exception:
+                pass
+
         # 2. Clean file path for processing
         file_path_str = str(file_path).replace("\\", "/")
         
@@ -492,7 +498,12 @@ class WhisperDataProcessor:
                     waveform = decoded["array"]
                     sr = decoded["sampling_rate"]
                 else:
-                    waveform, sr = self._load_audio(audio_data)
+                    try:
+                        # Handles Dict-like torchcodec AudioDecoders
+                        waveform = audio_data["array"]
+                        sr = audio_data["sampling_rate"]
+                    except (TypeError, KeyError, SyntaxError, Exception):
+                        waveform, sr = self._load_audio(audio_data)
             except Exception as audio_err:
                 self.loading_failures += 1
                 audio_ident = str(audio_data)[:100] if not isinstance(audio_data, dict) else audio_data.get("path", "unknown")
