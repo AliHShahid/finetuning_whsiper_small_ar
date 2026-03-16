@@ -48,7 +48,7 @@ def normalize_arabic_text(text: str) -> str:
     # Remove diacritics (including dagger alef \u0670)
     normalized = re.sub(r"[\u064B-\u065F\u0670\u06D6-\u06ED]", "", normalized)
     # Remove digits and common punctuation (including Arabic ones)
-    normalized = re.sub(r"[\d\.\!\?\,\(\)\[\]\{\}\<\>\/\\\|،؛؟]", "", normalized)
+    normalized = re.sub(r"[\d\.\!\?\,\(\)\[\]\{\}\<\>\/\\\|،؛؟\-\"\':;]", "", normalized)
     normalized = normalized.replace("ـ", "")
     normalized = normalized.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
     normalized = normalized.replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي")

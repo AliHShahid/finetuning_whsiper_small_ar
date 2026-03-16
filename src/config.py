@@ -20,9 +20,9 @@ class LoraConfig:
 
 @dataclass
 class ModelConfig:
-    name: str = "openai/whisper-base"
+    name: str = "openai/whisper-small"
     max_length: int = 225
-    language: str = "en"
+    language: str = "ar"
     task: str = "transcribe"
     generation_config: Dict[str, Any] = field(default_factory=dict)
     lora: LoraConfig = field(default_factory=LoraConfig)

@@ -79,7 +79,7 @@ class WhisperTrainer:
 
         self.model.generation_config.language = "ar"
         self.model.generation_config.task = "transcribe"
-        self.model.generation_config.forced_decoder_ids = None
+        self.model.generation_config.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="ar", task="transcribe")
         
         # Generation parameters optimized for Quranic text
         gen_config = config.model.generation_config
