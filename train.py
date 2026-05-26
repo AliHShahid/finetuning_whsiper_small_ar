@@ -13,7 +13,6 @@ from pathlib import Path
 from src.config import load_config
 from src.data_processor import WhisperDataProcessor
 from src.trainer import WhisperTrainer
-from src.hyperparameter_tuning import HyperparameterTuner
 from src.utils import setup_logging, create_directory_structure, save_results
 
 def main():
@@ -22,8 +21,6 @@ def main():
                        help="Path to configuration file")
     parser.add_argument("--csv-path", type=str, help="Path to CSV file (overrides config)")
     parser.add_argument("--output-dir", type=str, help="Output directory (overrides config)")
-    parser.add_argument("--tune-hyperparameters", action="store_true", 
-                       help="Enable hyperparameter tuning")
     parser.add_argument("--log-level", type=str, default="INFO", 
                        choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     
@@ -57,18 +54,6 @@ def main():
         dataset = data_processor.create_dataset(
             config.data.csv_path if config.data.source == "local_csv" else None
         )
-        
-        # Hyperparameter tuning
-        if args.tune_hyperparameters:
-            logger.info("Starting hyperparameter tuning...")
-            tuner = HyperparameterTuner(config, dataset)
-            best_params = tuner.tune()
-            
-            # Update config with best parameters
-            for param, value in best_params.items():
-                setattr(config.training, param, value)
-            
-            logger.info(f"Using best parameters: {best_params}")
         
         # Train model
         trainer_instance = WhisperTrainer(config)

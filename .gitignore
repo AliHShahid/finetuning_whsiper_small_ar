@@ -7,3 +7,4 @@ whisper_env/
 docker-compose.yml
 Dockerfile  
 Readme.md
+src\__pycache__
